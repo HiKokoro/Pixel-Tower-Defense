@@ -4834,4 +4834,17 @@ Verification:
 - Godot 4.7 `Main.gd` script `--check-only` passed.
 - Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
 - Godot 4.7 `--headless --path . --quit` project parse passed.
+---
+
+## ver0.43.1 - Codex preview repair
+
+- Replaced the handmade Codex preview drawings with actual `Tower` and `Enemy` preview nodes, so Codex appearances match in-game objects.
+- Fixed Codex detail Chinese text that had been corrupted into question marks.
+- Support/amplifier preview now uses the real tower augmentation overlay path instead of a separate fake icon.
+
+Verification:
+- Godot 4.7 `GameUI.gd` script `--check-only` passed.
+- Godot 4.7 `Main.gd` script `--check-only` passed.
+- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
+- Godot 4.7 `--headless --path . --quit` project parse passed.
 

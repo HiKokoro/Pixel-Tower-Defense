@@ -1,7 +1,7 @@
 extends RefCounted
 class_name UpdateAnnouncements
 
-const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.43.0"
+const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.43.1"
 const MAX_PLAYER_ANNOUNCEMENTS: int = 5
 
 
@@ -15,16 +15,29 @@ static func get_latest_announcement_id() -> String:
 static func get_recent_announcements() -> Array[Dictionary]:
 	var announcements: Array[Dictionary] = [
 		{
+			"id": "ver0.43.1",
+			"version": "ver0.43.1",
+			"date": "2026-07-05",
+			"kind": "修复优化",
+			"title": "图鉴外观和文字修复",
+			"summary": "图鉴预览改为直接使用现有炮塔和怪物节点外观，中文说明恢复正常显示。",
+			"bullets": [
+				"炮塔预览使用 Tower 的实际绘制。",
+				"怪物预览使用 Enemy 的实际绘制和基础怪动画帧。",
+				"修复图鉴详情文字变成问号的问题。",
+			],
+		},
+		{
 			"id": "ver0.43.0",
 			"version": "ver0.43.0",
 			"date": "2026-07-05",
-			"kind": "????",
-			"title": "??????",
-			"summary": "??????????????????????????????????",
+			"kind": "界面功能",
+			"title": "新增作战图鉴",
+			"summary": "主页新增图鉴入口，可横向浏览所有炮塔和怪物，并查看属性、功能和外形。",
 			"bullets": [
-				"???????????????",
-				"?????????????????",
-				"??????????????",
+				"图鉴列表按炮塔和怪物横向展示。",
+				"点击条目可查看详细属性和用途说明。",
+				"每个条目都有像素风外形预览。",
 			],
 		},
 		{

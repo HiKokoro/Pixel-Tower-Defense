@@ -354,88 +354,61 @@ class CodexIconPreview:
 
 	var item_kind: String = "tower"
 	var config: Dictionary = {}
+	var preview_node: Node2D
 
 	func set_item(new_kind: String, new_config: Dictionary) -> void:
 		item_kind = new_kind
 		config = new_config.duplicate(true)
+		_refresh_preview_node()
 		queue_redraw()
 
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_RESIZED and preview_node != null and is_instance_valid(preview_node):
+			preview_node.position = size * 0.5
+			preview_node.scale = Vector2.ONE * _get_preview_scale()
+
 	func _draw() -> void:
-		var center := size * 0.5
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.018, 0.026, 0.032, 0.88))
 		draw_rect(Rect2(Vector2.ONE, size - Vector2(2.0, 2.0)), _get_item_color().darkened(0.18), false, 2.0)
-		draw_set_transform(center, 0.0, Vector2.ONE)
+
+	func _refresh_preview_node() -> void:
+		if preview_node != null and is_instance_valid(preview_node):
+			preview_node.queue_free()
+		preview_node = null
+
+		preview_node = _make_enemy_preview_node() if item_kind == "enemy" else _make_tower_preview_node()
+		if preview_node == null:
+			return
+		preview_node.name = "ActualCodexPreview"
+		preview_node.position = size * 0.5
+		preview_node.scale = Vector2.ONE * _get_preview_scale()
+		preview_node.set_process(false)
+		preview_node.set_physics_process(false)
+		add_child(preview_node)
+
+	func _make_tower_preview_node() -> Tower:
+		var tower := Tower.new()
+		tower.setup(null, Vector2i.ZERO, config)
+		tower.selected = false
+		if _is_support_config():
+			tower.apply_augmentation(config)
+		return tower
+
+	func _make_enemy_preview_node() -> Enemy:
+		var enemy := Enemy.new()
+		var route_points: Array[Vector2] = [Vector2.ZERO, Vector2.RIGHT]
+		enemy.setup(route_points, 100, 1.0, 0, config, 1.0)
+		enemy.health = enemy.max_health
+		return enemy
+
+	func _is_support_config() -> bool:
+		return str(config.get("category", "weapon")) == "support"
+
+	func _get_preview_scale() -> float:
+		var preview_extent := minf(size.x, size.y)
 		if item_kind == "enemy":
-			_draw_enemy_preview()
-		else:
-			_draw_tower_preview()
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-	func _draw_tower_preview() -> void:
-		var body := _get_item_color()
-		var barrel := _get_config_color("barrel_color", body.darkened(0.45))
-		var projectile := _get_config_color("projectile_color", body.lightened(0.35))
-		var type_id := str(config.get("id", "basic"))
-		draw_rect(Rect2(Vector2(-28.0, -28.0), Vector2(56.0, 56.0)), Color(0.08, 0.12, 0.15))
-		match type_id:
-			"rapid":
-				draw_rect(Rect2(Vector2(-20.0, -20.0), Vector2(40.0, 40.0)), body)
-				draw_line(Vector2(-6.0, 0.0), Vector2(34.0, 0.0), barrel, 5.0, false)
-				draw_line(Vector2(0.0, -8.0), Vector2(30.0, -8.0), barrel.lightened(0.15), 3.0, false)
-				draw_rect(Rect2(Vector2(30.0, -4.0), Vector2(8.0, 8.0)), projectile)
-			"shotgun":
-				draw_rect(Rect2(Vector2(-22.0, -18.0), Vector2(44.0, 36.0)), body)
-				for angle in [-0.42, -0.20, 0.0, 0.20, 0.42]:
-					var end := Vector2.RIGHT.rotated(angle) * 34.0
-					draw_line(Vector2.ZERO, end, barrel, 4.0, false)
-			"cannon":
-				draw_rect(Rect2(Vector2(-24.0, -24.0), Vector2(48.0, 48.0)), body.darkened(0.1))
-				draw_rect(Rect2(Vector2(-16.0, -16.0), Vector2(32.0, 32.0)), body.lightened(0.12))
-				draw_line(Vector2(-4.0, 0.0), Vector2(38.0, 0.0), barrel, 9.0, false)
-				draw_rect(Rect2(Vector2(34.0, -6.0), Vector2(12.0, 12.0)), projectile)
-			"sniper":
-				draw_colored_polygon(PackedVector2Array([Vector2(-24.0, 0.0), Vector2(0.0, -22.0), Vector2(24.0, 0.0), Vector2(0.0, 22.0)]), body)
-				draw_line(Vector2(-2.0, 0.0), Vector2(42.0, 0.0), barrel, 3.0, false)
-				draw_circle(Vector2.ZERO, 8.0, projectile)
-			"amplifier":
-				draw_rect(Rect2(Vector2(-22.0, -22.0), Vector2(44.0, 44.0)), body)
-				draw_arc(Vector2.ZERO, 26.0, 0.0, TAU, 40, projectile, 3.0, true)
-				draw_line(Vector2(-13.0, 0.0), Vector2(13.0, 0.0), projectile, 3.0, true)
-				draw_line(Vector2(0.0, -13.0), Vector2(0.0, 13.0), projectile, 3.0, true)
-			_:
-				draw_rect(Rect2(Vector2(-22.0, -22.0), Vector2(44.0, 44.0)), body)
-				draw_line(Vector2.ZERO, Vector2(34.0, 0.0), barrel, 5.0, false)
-				draw_rect(Rect2(Vector2(31.0, -4.0), Vector2(8.0, 8.0)), projectile)
-
-	func _draw_enemy_preview() -> void:
-		var body := _get_item_color()
-		var outline := _get_config_color("outline", body.darkened(0.55))
-		var radius := clampf(float(config.get("radius", 13.0)) * 1.55, 16.0, 32.0)
-		match str(config.get("shape", "circle")):
-			"square":
-				draw_rect(Rect2(Vector2(-radius, -radius), Vector2(radius * 2.0, radius * 2.0)), body)
-				draw_rect(Rect2(Vector2(-radius, -radius), Vector2(radius * 2.0, radius * 2.0)), outline, false, 3.0)
-			"diamond":
-				draw_colored_polygon(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, 0.0), Vector2(0.0, radius), Vector2(-radius, 0.0)]), body)
-				draw_polyline(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, 0.0), Vector2(0.0, radius), Vector2(-radius, 0.0), Vector2(0.0, -radius)]), outline, 3.0, true)
-			"triangle":
-				draw_colored_polygon(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, radius * 0.82), Vector2(-radius, radius * 0.82)]), body)
-				draw_polyline(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, radius * 0.82), Vector2(-radius, radius * 0.82), Vector2(0.0, -radius)]), outline, 3.0, true)
-			"hex":
-				var points := PackedVector2Array()
-				for index in range(6):
-					points.append(Vector2.RIGHT.rotated(TAU * float(index) / 6.0) * radius)
-				draw_colored_polygon(points, body)
-				var outline_points := points.duplicate()
-				outline_points.append(points[0])
-				draw_polyline(outline_points, outline, 3.0, true)
-			_:
-				draw_circle(Vector2.ZERO, radius, body)
-				draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, outline, 3.0, true)
-		draw_rect(Rect2(Vector2(-8.0, -7.0), Vector2(5.0, 5.0)), Color(1.0, 0.88, 0.68))
-		draw_rect(Rect2(Vector2(3.0, -7.0), Vector2(5.0, 5.0)), Color(1.0, 0.88, 0.68))
-		if bool(config.get("taunt", false)):
-			draw_arc(Vector2.ZERO, radius + 7.0, 0.0, TAU, 48, Color(0.95, 0.95, 0.78, 0.70), 3.0, true)
+			return clampf(preview_extent / 58.0, 0.85, 2.4)
+		return clampf(preview_extent / 88.0, 0.72, 1.80)
 
 	func _get_item_color() -> Color:
 		return _get_config_color("color", Color(0.42, 0.82, 1.0))
@@ -445,6 +418,8 @@ class CodexIconPreview:
 		if raw_value is Color:
 			return raw_value
 		return fallback
+
+
 const CONSOLE_COMMANDS: Array[String] = [
 	"help",
 	"start",
@@ -2748,47 +2723,47 @@ func _format_codex_body_text(kind: String, config: Dictionary) -> String:
 
 func _format_tower_codex_body(config: Dictionary) -> String:
 	var lines: Array[String] = []
-	lines.append("???%d ??" % _get_tower_config_cost(config))
-	lines.append("???? %d ?" % (_get_tower_config_unlock_level(config) + 1))
+	lines.append("费用：%d 金币" % _get_tower_config_cost(config))
+	lines.append("解锁：第 %d 关" % (_get_tower_config_unlock_level(config) + 1))
 	if _is_support_tower_config(config):
-		lines.append("????? +%d%%??? +%d%%" % [_format_multiplier_bonus(config, "damage_multiplier"), _format_multiplier_bonus(config, "range_multiplier")])
+		lines.append("属性：伤害 +%d%%，射程 +%d%%" % [_format_multiplier_bonus(config, "damage_multiplier"), _format_multiplier_bonus(config, "range_multiplier")])
 	else:
-		lines.append("???%d  |  ???%d  |  ?????%.2f ?" % [_get_tower_config_damage(config), int(_get_tower_config_range(config)), _get_tower_config_interval(config)])
-		lines.append("?????%d" % int(float(config.get("projectile_speed", 0.0))))
+		lines.append("属性：伤害 %d  |  射程 %d  |  间隔 %.2f 秒" % [_get_tower_config_damage(config), int(_get_tower_config_range(config)), _get_tower_config_interval(config)])
+		lines.append("弹丸速度：%d" % int(float(config.get("projectile_speed", 0.0))))
 	var type_id := str(config.get("id", "basic"))
 	match type_id:
 		"rapid":
-			lines.append("???????????????????????????")
+			lines.append("功能：高射速炮塔，适合追击漏掉的快速怪和补刀残血目标。")
 		"shotgun":
-			lines.append("?????????????????????????")
+			lines.append("功能：散射多枚弹丸，近距离对成群怪物效果最好。")
 		"cannon":
-			lines.append("?????????????? %.0f????? %.0f%%?" % [float(config.get("splash_radius", 0.0)), float(config.get("splash_ratio", 0.0)) * 100.0])
+			lines.append("功能：重型溅射输出。爆炸半径 %.0f，边缘伤害 %.0f%%。" % [float(config.get("splash_radius", 0.0)), float(config.get("splash_ratio", 0.0)) * 100.0])
 		"sniper":
-			lines.append("????????????? %d ?????????????" % int(config.get("pierce", 0)))
+			lines.append("功能：超远距离精准点杀，弹丸可穿透 %d 个目标。" % int(config.get("pierce", 0)))
 		"amplifier":
-			lines.append("???????????????????????????")
+			lines.append("功能：支援增幅层，不单独射击；建造时叠加到已有炮塔上。")
 		_:
-			lines.append("????????????????????")
+			lines.append("功能：均衡的基础炮塔，提供稳定单体输出。")
 	return "\n".join(lines)
 
 
 func _format_enemy_codex_body(config: Dictionary) -> String:
 	var lines: Array[String] = []
-	lines.append("???? x%.2f  |  ???? x%.2f  |  ???? x%.2f" % [float(config.get("health_mul", 1.0)), float(config.get("speed_mul", 1.0)), float(config.get("reward_mul", 1.0))])
-	lines.append("?????%.1f  |  ?????%d" % [float(config.get("radius", 12.0)), int(config.get("base_damage", 1))])
+	lines.append("生命倍率 x%.2f  |  速度倍率 x%.2f  |  奖励倍率 x%.2f" % [float(config.get("health_mul", 1.0)), float(config.get("speed_mul", 1.0)), float(config.get("reward_mul", 1.0))])
+	lines.append("体型半径：%.1f  |  基地伤害：%d" % [float(config.get("radius", 12.0)), int(config.get("base_damage", 1))])
 	match str(config.get("id", "grunt")):
 		"runner":
-			lines.append("?????????????????????????????")
+			lines.append("功能：高速压迫单位，会惩罚攻速慢或覆盖不足的防线。")
 		"brute":
-			lines.append("??????????????????????????")
+			lines.append("功能：慢速重甲单位，生命更高，到达基地时伤害更高。")
 		"shield":
-			lines.append("????????????????????????")
+			lines.append("功能：持盾怪物，用来检验防线的持续输出和覆盖。")
 		"taunt":
-			lines.append("?????????????????????????")
+			lines.append("功能：嘲讽堡垒单位，会吸引炮塔火力并保护同波次怪物推进。")
 		"elite":
-			lines.append("????????????????????????")
+			lines.append("功能：后期精英威胁，生命很高，击杀后奖励也更高。")
 		_:
-			lines.append("??????????????????????")
+			lines.append("功能：基础怪物，用来衡量普通输出和经济节奏。")
 	return "\n".join(lines)
 
 
