@@ -435,6 +435,10 @@ func _has_exited_visible_screen() -> bool:
 	if zoom.x <= 0.0 or zoom.y <= 0.0:
 		return false
 
+	var map_rect := Rect2(Vector2.ZERO, game_node.get_map_pixel_size()).grow(SNIPER_SCREEN_EXIT_MARGIN)
+	if map_rect.has_point(global_position):
+		return false
+
 	var world_size := Vector2(viewport_size.x / zoom.x, viewport_size.y / zoom.y)
 	var visible_rect := Rect2(game_node.camera.global_position - world_size * 0.5, world_size)
 	return not visible_rect.grow(SNIPER_SCREEN_EXIT_MARGIN).has_point(global_position)

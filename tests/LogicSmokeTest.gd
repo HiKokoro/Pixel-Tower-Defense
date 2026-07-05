@@ -540,6 +540,7 @@ func _run() -> void:
 
 	game.queue_free()
 	await process_frame
+	_clear_level_start_save_for_test()
 
 	game = main_scene.instantiate() as Main
 	root.add_child(game)
@@ -803,6 +804,10 @@ func _run() -> void:
 	_assert(game._auto_waves_enabled, "Clicking Start Wave should enable automatic waves.")
 	_assert(game.ui._drag_card_control == null and not game.ui.card_area_preview.visible, "Starting a wave should cancel card drags and hide range previews.")
 	_assert(game.ui.start_wave_button.disabled, "Start Wave button should disable after auto waves begin.")
+	game._card_hand.clear()
+	game._pending_reward_card.clear()
+	game._pending_reward_timeout = 0.0
+	game.ui.update_card_hand(game._card_hand, game._pending_reward_card, false)
 	game.wave_manager.stop()
 	game._clear_enemies_and_projectiles()
 	game._check_level_complete()
@@ -1081,6 +1086,7 @@ func _run() -> void:
 	game.ui.update_card_hand(game._card_hand, {}, false)
 	game.queue_free()
 	await process_frame
+	_clear_level_start_save_for_test()
 
 	game = main_scene.instantiate() as Main
 	root.add_child(game)
@@ -1792,6 +1798,7 @@ func _run() -> void:
 
 	game.queue_free()
 	await process_frame
+	_clear_level_start_save_for_test()
 
 	game = main_scene.instantiate() as Main
 	root.add_child(game)

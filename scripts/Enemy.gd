@@ -62,8 +62,7 @@ const MAX_BASE_DAMAGE: int = 100
 
 
 func setup(points: Array[Vector2], enemy_health: int, move_speed: float, kill_reward: int, type_config: Dictionary = {}, cached_path_length: float = -1.0) -> void:
-	var route_points: Array[Vector2] = points.duplicate()
-	path_points = route_points
+	path_points = points
 	max_health = _sanitize_positive_int(enemy_health, DEFAULT_HEALTH, MAX_HEALTH)
 	health = max_health
 	speed = _sanitize_positive_float(move_speed, DEFAULT_SPEED, MAX_SPEED)

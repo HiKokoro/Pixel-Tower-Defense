@@ -1,7 +1,7 @@
 extends RefCounted
 class_name UpdateAnnouncements
 
-const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.43.1"
+const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.43.7"
 const MAX_PLAYER_ANNOUNCEMENTS: int = 5
 
 
@@ -14,6 +14,19 @@ static func get_latest_announcement_id() -> String:
 
 static func get_recent_announcements() -> Array[Dictionary]:
 	var announcements: Array[Dictionary] = [
+		{
+			"id": "ver0.43.7",
+			"version": "ver0.43.7",
+			"date": "2026-07-05",
+			"kind": "修复优化",
+			"title": "64px炮塔格子适配与稳定性修复",
+			"summary": "首次打开这个版本会看到建造格已经放大到64px，精细炮塔能够完整落在单个格子里；本轮也修复了冒烟测试覆盖到的卡牌、敌人缓存和结算准备问题。",
+			"bullets": [
+				"主逻辑、建造逻辑和地图渲染统一使用64px格子。",
+				"建塔预览框、占用检测和道路格判断与新格子尺寸一致。",
+				"补充冒烟测试断言，防止格子尺寸退回32px。",
+			],
+		},
 		{
 			"id": "ver0.43.1",
 			"version": "ver0.43.1",

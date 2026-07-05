@@ -2518,6 +2518,10 @@ func _get_reward_card_display_name(card: Dictionary) -> String:
 	var source_display_name := str(card.get("name", "")).strip_edges()
 	if not source_display_name.is_empty():
 		return source_display_name
+	var raw_id := str(card.get("id", "")).strip_edges()
+	var raw_card_id := str(card.get("card_id", "")).strip_edges()
+	if raw_id.is_empty() and raw_card_id.is_empty():
+		return _get_default_reward_card_display_name()
 	var normalized_card := _normalize_reward_card(card)
 	var display_name := str(normalized_card.get("name", "")).strip_edges()
 	return display_name if not display_name.is_empty() else _get_default_reward_card_display_name()
@@ -4299,11 +4303,10 @@ func _get_level_enemy_types(config: Dictionary) -> Array[String]:
 	var raw_enemy_types = config.get("enemy_types", [DEFAULT_ENEMY_TYPE_ID])
 	if raw_enemy_types is Array:
 		for raw_type in raw_enemy_types:
-			if str(raw_type).strip_edges().is_empty():
+			var type_id := str(raw_type).strip_edges()
+			if type_id.is_empty() or normalized_types.has(type_id):
 				continue
-			var type_id := _sanitize_enemy_type_id(raw_type)
-			if not type_id.is_empty() and not normalized_types.has(type_id):
-				normalized_types.append(type_id)
+			normalized_types.append(type_id)
 
 	if normalized_types.is_empty():
 		normalized_types.append(DEFAULT_ENEMY_TYPE_ID)
@@ -4582,11 +4585,8 @@ func _spawn_enemy(type_id: String, enemy_health: int, enemy_speed: float, reward
 
 func _get_spawn_path(route_index: int) -> Array[Vector2]:
 	if spawn_paths.is_empty():
-		var default_path: Array[Vector2] = path_points.duplicate()
-		return default_path
-	var route_path: Array[Vector2] = spawn_paths[clampi(route_index, 0, spawn_paths.size() - 1)] as Array[Vector2]
-	var route_snapshot: Array[Vector2] = route_path.duplicate()
-	return route_snapshot
+		return path_points
+	return spawn_paths[clampi(route_index, 0, spawn_paths.size() - 1)] as Array[Vector2]
 
 
 func _get_spawn_path_length(route_index: int) -> float:

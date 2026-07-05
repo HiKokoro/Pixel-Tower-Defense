@@ -165,7 +165,7 @@ func _get_enemy_wave_base_stats(type_id: String, wave_index: int) -> Dictionary:
 	var cache_key := "%s:%d" % [safe_type_id, wave_index]
 	if _enemy_wave_stat_cache.has(cache_key):
 		var cached_stats: Dictionary = _enemy_wave_stat_cache[cache_key] as Dictionary
-		return cached_stats.duplicate(true)
+		return cached_stats
 
 	var multipliers: Dictionary = _get_enemy_stat_multipliers(safe_type_id)
 	var base_health := 50 + wave_index * 16
@@ -177,7 +177,7 @@ func _get_enemy_wave_base_stats(type_id: String, wave_index: int) -> Dictionary:
 		"reward": int(round(float(base_reward) * float(multipliers["reward"]))),
 	}
 	_enemy_wave_stat_cache[cache_key] = base_stats
-	return base_stats.duplicate(true)
+	return base_stats
 
 
 func _get_spawn_reward_bonus(spawn_index: int) -> int:
@@ -188,7 +188,7 @@ func _get_enemy_stat_multipliers(type_id: String) -> Dictionary:
 	var safe_type_id := _sanitize_enemy_type_id(type_id)
 	if _enemy_stat_multipliers.has(safe_type_id):
 		var cached_multipliers: Dictionary = _enemy_stat_multipliers[safe_type_id] as Dictionary
-		return cached_multipliers.duplicate(true)
+		return cached_multipliers
 
 	var type_config := _get_enemy_type_config(safe_type_id)
 	var multipliers: Dictionary = {
@@ -197,7 +197,7 @@ func _get_enemy_stat_multipliers(type_id: String) -> Dictionary:
 		"reward": _sanitize_positive_multiplier(type_config.get("reward_mul", DEFAULT_REWARD_MULTIPLIER), DEFAULT_REWARD_MULTIPLIER, MAX_REWARD_MULTIPLIER),
 	}
 	_enemy_stat_multipliers[safe_type_id] = multipliers
-	return multipliers.duplicate(true)
+	return multipliers
 
 
 func _get_enemy_type_config(type_id: String) -> Dictionary:
@@ -243,9 +243,7 @@ func _pick_route_index(wave_index: int, _spawn_index: int, batch_index: int = 0)
 func _normalize_enemy_types(available_enemy_types: Array) -> Array[String]:
 	var normalized_types: Array[String] = []
 	for type_value in available_enemy_types:
-		if str(type_value).strip_edges().is_empty():
-			continue
-		var type_id := _sanitize_enemy_type_id(type_value)
+		var type_id := str(type_value).strip_edges()
 		if type_id.is_empty():
 			continue
 		if normalized_types.has(type_id):

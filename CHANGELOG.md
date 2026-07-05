@@ -4928,3 +4928,19 @@
 - Godot 4.7 `BuildManager.gd` 脚本语法检查通过。
 - Godot 4.7 `MapRenderer.gd` 脚本语法检查通过。
 - Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。`LogicSmokeTest.gd` 实际运行时新增的64px网格断言全部通过，进程正常返回退出码1；剩余失败仍为现有的更新公告、奖励卡牌、敌人缓存/规范化、失败结算准备等断言。
+---
+
+## ver0.43.7 - 冒烟测试断言与缓存修复
+
+- 更新玩家公告首条，确保首次弹窗说明当前可见的64px格子适配改动。
+- 修复奖励卡牌名称兜底逻辑：只有明确卡牌 ID 时才解析默认定义，空卡牌继续显示“卡牌”。
+- 修复关卡敌人类型列表规范化过度兜底的问题，保留配置中的干净字符串 ID。
+- 修复波次敌人数值缓存 getter 每次返回拷贝的问题，让重复读取复用缓存字典。
+- 修复刷怪路线和敌人路径重复复制的问题，让敌人复用关卡缓存路线数组。
+- 修复狙击弹在地图内但离开当前镜头时被误删的问题。
+- 调整冒烟测试准备流程，避免手牌测试卡和关卡开始存档污染后续断言。
+
+验证：
+- Godot 4.7 `Main.gd`、`WaveManager.gd`、`Enemy.gd`、`Projectile.gd`、`UpdateAnnouncements.gd`、`LogicSmokeTest.gd` 脚本语法检查通过。
+- 已实际运行 `LogicSmokeTest.gd`，结果通过（退出码0）。
+- 已实际运行 `PerformanceBenchmark.gd`，结果通过（退出码0）：avg 6.897ms，p95 6.931ms，max 7.411ms，估算 145.0 FPS。
