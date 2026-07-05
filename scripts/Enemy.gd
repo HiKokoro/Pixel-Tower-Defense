@@ -1,4 +1,4 @@
-extends Node2D
+﻿extends Node2D
 class_name Enemy
 
 const ParticleBurst := preload("res://scripts/ParticleBurst.gd")
@@ -34,6 +34,7 @@ var _traveled_distance: float = 0.0
 var _total_path_length: float = 1.0
 var _path_progress: float = 0.0
 var _attack_timer: float = 0.0
+var visual_preview_only: bool = false
 var _sprite: AnimatedSprite2D
 var _move_direction: Vector2 = Vector2.RIGHT
 var _step_particle_timer: float = 0.0
@@ -121,12 +122,25 @@ func set_game(game_ref: Main) -> void:
 	game = game_ref
 
 
+func set_visual_preview_only(enabled: bool) -> void:
+	visual_preview_only = enabled
+	set_process(not enabled)
+	set_physics_process(not enabled)
+	slow_time = 0.0
+	attraction_time = 0.0
+	is_attacking_base = false
+	queue_redraw()
+
+
 func _ready() -> void:
-	add_to_group("enemies")
+	if not visual_preview_only:
+		add_to_group("enemies")
 	_setup_sprite_visual()
 
 
 func _process(delta: float) -> void:
+	if visual_preview_only:
+		return
 	if slow_time > 0.0:
 		slow_time = maxf(slow_time - delta, 0.0)
 		if slow_time <= 0.0:
@@ -306,21 +320,23 @@ func _draw() -> void:
 	if not _uses_sprite_visual():
 		_draw_body(radius)
 		_draw_type_details(radius)
-	if slow_time > 0.0:
-		draw_circle(Vector2.ZERO, radius + 7.0, Color(0.45, 0.82, 1.0, 0.15))
-		draw_arc(Vector2.ZERO, radius + 8.0, 0.0, TAU, 24, Color(0.55, 0.92, 1.0, 0.85), 2.0, true)
-	if attraction_time > 0.0:
-		draw_arc(Vector2.ZERO, radius + 12.0, -0.75, 0.75, 18, Color(1.0, 0.82, 0.24, 0.85), 2.0, true)
-	if is_attacking_base:
-		draw_line(Vector2(10.0, -4.0), Vector2(30.0, -16.0), Color(1.0, 0.66, 0.12), 3.5, true)
-		draw_line(Vector2(10.0, 4.0), Vector2(30.0, 16.0), Color(1.0, 0.66, 0.12), 3.5, true)
-		draw_circle(Vector2(30.0, 0.0), 4.0, Color(1.0, 0.35, 0.12, 0.8))
+	if not visual_preview_only:
+		if slow_time > 0.0:
+			draw_circle(Vector2.ZERO, radius + 7.0, Color(0.45, 0.82, 1.0, 0.15))
+			draw_arc(Vector2.ZERO, radius + 8.0, 0.0, TAU, 24, Color(0.55, 0.92, 1.0, 0.85), 2.0, true)
+		if attraction_time > 0.0:
+			draw_arc(Vector2.ZERO, radius + 12.0, -0.75, 0.75, 18, Color(1.0, 0.82, 0.24, 0.85), 2.0, true)
+		if is_attacking_base:
+			draw_line(Vector2(10.0, -4.0), Vector2(30.0, -16.0), Color(1.0, 0.66, 0.12), 3.5, true)
+			draw_line(Vector2(10.0, 4.0), Vector2(30.0, 16.0), Color(1.0, 0.66, 0.12), 3.5, true)
+			draw_circle(Vector2(30.0, 0.0), 4.0, Color(1.0, 0.35, 0.12, 0.8))
 	if not _uses_sprite_visual():
 		_draw_outline(radius)
 
-	var bar_position := Vector2(-16.0, -25.0)
-	draw_rect(Rect2(bar_position, Vector2(32.0, 6.0)), Color(0.05, 0.06, 0.06))
-	draw_rect(Rect2(bar_position + Vector2(1.0, 1.0), Vector2(30.0 * health_ratio, 4.0)), Color(0.25, 0.9, 0.35))
+	if not visual_preview_only:
+		var bar_position := Vector2(-16.0, -25.0)
+		draw_rect(Rect2(bar_position, Vector2(32.0, 6.0)), Color(0.05, 0.06, 0.06))
+		draw_rect(Rect2(bar_position + Vector2(1.0, 1.0), Vector2(30.0 * health_ratio, 4.0)), Color(0.25, 0.9, 0.35))
 
 
 func _draw_contact_shadow(radius: float) -> void:
@@ -600,3 +616,5 @@ func _draw_taunt_details(radius: float) -> void:
 	draw_arc(Vector2.ZERO, radius * 1.10, PI * 0.15, PI * 1.85, 28, Color(signal_color.r, signal_color.g, signal_color.b, 0.62), 2.0, true)
 	draw_line(Vector2(-radius * 0.36, -radius * 0.12), Vector2(radius * 0.36, -radius * 0.12), signal_color, 3.0, true)
 	draw_line(Vector2(-radius * 0.36, radius * 0.18), Vector2(radius * 0.36, radius * 0.18), signal_color, 3.0, true)
+
+

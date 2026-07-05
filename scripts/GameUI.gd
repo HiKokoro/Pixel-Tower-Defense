@@ -1,4 +1,4 @@
-extends CanvasLayer
+﻿extends CanvasLayer
 class_name GameUI
 
 const TOWER_PANEL_OPEN_POSITION := Vector2(694.0, 78.0)
@@ -399,6 +399,7 @@ class CodexIconPreview:
 		var route_points: Array[Vector2] = [Vector2.ZERO, Vector2.RIGHT]
 		enemy.setup(route_points, 100, 1.0, 0, config, 1.0)
 		enemy.health = enemy.max_health
+		enemy.set_visual_preview_only(true)
 		return enemy
 
 	func _is_support_config() -> bool:
@@ -4379,3 +4380,4 @@ func _apply_console_completion(completion: String, token_index: int, tokens: Pac
 	var suffix := " " if append_space else ""
 	console_input.text = " ".join(result_tokens) + suffix + after_caret
 	console_input.caret_column = (" ".join(result_tokens) + suffix).length()
+

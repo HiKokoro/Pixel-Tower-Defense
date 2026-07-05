@@ -1,4 +1,4 @@
-# 更新日志
+﻿# 更新日志
 
 本文档从 `ver0.0.0` 作为项目最开始的版本号，按修改量、影响范围和重要性整理截至目前的主要更新。
 
@@ -4847,4 +4847,16 @@ Verification:
 - Godot 4.7 `Main.gd` script `--check-only` passed.
 - Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
 - Godot 4.7 `--headless --path . --quit` project parse passed.
+---
+
+## ver0.43.1 - Codex preview fix
+
+- Fixed Codex preview visuals to reuse the existing `Tower.gd` and `Enemy.gd` appearance logic instead of separate hand-drawn placeholder icons.
+- Added enemy visual preview mode so Codex monsters do not join gameplay groups, run movement/attack logic, or draw health bars/status effects.
+- Fixed broken Codex Chinese description text that had become question marks.
+
+Verification:
+- Godot 4.7 `Enemy.gd` script `--check-only` passed.
+- Godot 4.7 `GameUI.gd` script `--check-only` passed.
+- Godot 4.7 `Main.gd` script `--check-only` passed.
 
