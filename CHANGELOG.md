@@ -4913,3 +4913,18 @@
 验证：
 - Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。
 - 已使用 `--display-driver headless --rendering-driver dummy --audio-driver Dummy` 实际运行 `LogicSmokeTest.gd`，进程正常返回退出码 1，没有在本机复现 native crash；当前失败仍是现有断言项。
+
+---
+
+## ver0.43.6 - 64px炮塔网格适配
+
+- 将主逻辑、建造逻辑和地图渲染的单格尺寸统一从32px调整为64px。
+- 建塔坐标换算、占用检测、道路格判定和预览框继续使用同一套网格常量，确保64px炮塔完整落在单个建造格内。
+- 地图像素尺寸随关卡格数自动扩大，避免只放大炮塔外观却仍使用32px小格导致溢出。
+- 为冒烟测试补充64px网格断言，防止后续再把建造格退回32px。
+
+验证：
+- Godot 4.7 `Main.gd` 脚本语法检查通过。
+- Godot 4.7 `BuildManager.gd` 脚本语法检查通过。
+- Godot 4.7 `MapRenderer.gd` 脚本语法检查通过。
+- Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。`LogicSmokeTest.gd` 实际运行时新增的64px网格断言全部通过，进程正常返回退出码1；剩余失败仍为现有的更新公告、奖励卡牌、敌人缓存/规范化、失败结算准备等断言。

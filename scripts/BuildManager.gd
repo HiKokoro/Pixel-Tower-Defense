@@ -1,7 +1,7 @@
 extends Node2D
 class_name BuildManager
 
-const GRID_SIZE: int = 32
+const GRID_SIZE: int = 64
 const TOWER_COST: int = 50
 const PLAY_TOP: int = 64
 const CONFIG_MAX_TOWER_COST: int = 10000

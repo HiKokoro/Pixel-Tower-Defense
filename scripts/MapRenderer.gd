@@ -1,7 +1,7 @@
 extends Node2D
 class_name MapRenderer
 
-const GRID_SIZE: int = 32
+const GRID_SIZE: int = 64
 const PLAY_TOP: int = 64
 const MAP_HEIGHT: int = 640
 const COL_BG := Color(0.045, 0.055, 0.060)

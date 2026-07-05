@@ -67,8 +67,14 @@ func _run() -> void:
 
 	var main_init_probe := Main.new()
 	_assert(main_init_probe._message == main_init_probe._get_start_screen_message_text(), "Main initial message should use the start-screen message helper.")
+	_assert(Main.GRID_SIZE == 64, "主逻辑网格必须是64px，才能容纳64px炮塔。")
+	_assert(BuildManager.GRID_SIZE == 64, "建造逻辑网格必须是64px，避免炮塔溢出格子。")
+	_assert(MapRenderer.GRID_SIZE == 64, "地图渲染网格必须是64px，保证视觉格子和建造格一致。")
+	var build_grid_probe := BuildManager.new()
+	_assert(build_grid_probe.grid_to_center(Vector2i(0, 0)) == Vector2(32.0, 96.0), "64px格子的第一格中心应位于炮塔模型中心。")
+	_assert(build_grid_probe.world_to_grid(Vector2(63.0, 127.0)) == Vector2i(0, 0), "64px格子边界内的坐标应仍属于第一格。")
+	build_grid_probe.queue_free()
 	main_init_probe.queue_free()
-
 	var tower_text_probe := Tower.new()
 	_assert(tower_text_probe._format_upgrade_preview_text(2, "强化核心") == "等级2：强化核心", "Tower upgrade preview formatter should use localized text.")
 	_assert(tower_text_probe._format_augmentation_trait_line_text("增幅塔") == "\n增幅：增幅塔", "Tower augmentation formatter should use localized text.")
