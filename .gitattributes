@@ -1,4 +1,6 @@
-# Keep Godot/text assets stable across platforms
+# Keep Git metadata and Godot/text assets stable across platforms
+.gitattributes text eol=lf
+.gitignore text eol=lf
 *.gd text eol=lf
 *.tscn text eol=lf
 *.tres text eol=lf
