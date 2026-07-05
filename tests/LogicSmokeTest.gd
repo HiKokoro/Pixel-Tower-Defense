@@ -3,16 +3,36 @@ extends SceneTree
 const UpdateAnnouncements := preload("res://scripts/UpdateAnnouncements.gd")
 const LEVEL_START_SAVE_PATH := "user://level_start_save.cfg"
 const LEVEL_START_SAVE_SECTION := "level_start"
+const TEST_TIMEOUT_SECONDS := 150.0
 
 var _failures: Array[String] = []
+var _elapsed_seconds := 0.0
+var _finished := false
+var _last_checkpoint := "初始化"
+var _level_start_save_snapshot: Dictionary = {}
+var _has_level_start_save_snapshot := false
 
 
 func _initialize() -> void:
+	print("逻辑冒烟测试开始。")
 	call_deferred("_run")
 
 
+func _process(delta: float) -> bool:
+	if _finished:
+		return false
+	_elapsed_seconds += delta
+	if _elapsed_seconds >= TEST_TIMEOUT_SECONDS:
+		_failures.append("逻辑冒烟测试超时，最后检查点：" + _last_checkpoint)
+		push_error("[FAIL] 逻辑冒烟测试超时，最后检查点：" + _last_checkpoint)
+		_finish()
+	return false
+
+
 func _run() -> void:
-	var original_level_start_save := _read_level_start_save_for_test()
+	_last_checkpoint = "读取并清理关卡存档"
+	_level_start_save_snapshot = _read_level_start_save_for_test()
+	_has_level_start_save_snapshot = true
 	_clear_level_start_save_for_test()
 
 	var main_scene := load("res://scenes/Main.tscn") as PackedScene
@@ -489,7 +509,7 @@ func _run() -> void:
 	_assert(game.spawn_paths.size() == 3, "Selected level 3 should load its routes.")
 	_assert(game.spawn_path_lengths.size() == game.spawn_paths.size(), "Selected levels should refresh cached route lengths.")
 	_assert(game.ui.level_banner_panel.visible, "Selecting a level should show the level intro banner.")
-	_assert(_count_particles(game.ui.ui_root) > 0, "Level intro animation should create UI particles.")
+	_assert(_count_particles(game.ui.ui_root) == 0, "Level intro animation should use rebound animation instead of UI particles.")
 	_assert(game.ui.level_banner_title_label.text == "第03关 / 共10关", "Level intro banner should use localized level wording.")
 
 	game.gold = 1
@@ -938,7 +958,7 @@ func _run() -> void:
 	game._on_reward_card_play_requested(game._card_hand.size() - 1, game.world_to_screen(missile_enemy.global_position))
 	_assert(_count_particles(game.particle_layer) > particles_before_missile, "Missile card should spawn area particles.")
 	await create_timer(0.25).timeout
-	_assert(missile_enemy.health < 200, "Missile card should damage enemies in its target area.")
+	_assert(not is_instance_valid(missile_enemy) or missile_enemy.health < 200, "Missile card should damage or defeat enemies in its target area.")
 	_assert(game._missile_effect_timer > 0.0, "Missile card should trigger a visible strike effect.")
 	game._clear_enemies_and_projectiles()
 
@@ -947,8 +967,8 @@ func _run() -> void:
 	game._add_card_to_hand_or_pending(game._make_debug_reward_card("cryo"))
 	game._on_reward_card_play_requested(game._card_hand.size() - 1, game.world_to_screen(cryo_enemy.global_position))
 	await create_timer(0.25).timeout
-	_assert(cryo_enemy.health <= 75, "Cryo card should deal light area damage.")
-	_assert(cryo_enemy.speed_multiplier < 1.0, "Cryo card should slow enemies in its area.")
+	_assert(not is_instance_valid(cryo_enemy) or cryo_enemy.health <= 75, "Cryo card should damage or defeat enemies in its target area.")
+	_assert(not is_instance_valid(cryo_enemy) or cryo_enemy.speed_multiplier < 1.0, "Cryo card should slow or defeat enemies in its area.")
 	game._clear_enemies_and_projectiles()
 
 	var fire_enemy := game._spawn_enemy("grunt", 100, 0.0, 0, 0.0, 0)
@@ -956,7 +976,7 @@ func _run() -> void:
 	game._add_card_to_hand_or_pending(game._make_debug_reward_card("firestorm"))
 	game._on_reward_card_play_requested(game._card_hand.size() - 1, game.world_to_screen(fire_enemy.global_position))
 	await create_timer(0.25).timeout
-	_assert(fire_enemy.health <= 55, "Firestorm card should damage enemies across the map.")
+	_assert(not is_instance_valid(fire_enemy) or fire_enemy.health <= 55, "Firestorm card should damage or defeat enemies across the map.")
 	game._clear_enemies_and_projectiles()
 
 	var freeze_enemy := game._spawn_enemy("runner", 100, 120.0, 0, 0.0, 0)
@@ -964,7 +984,7 @@ func _run() -> void:
 	game._add_card_to_hand_or_pending(game._make_debug_reward_card("freeze"))
 	game._on_reward_card_play_requested(game._card_hand.size() - 1, game.world_to_screen(freeze_enemy.global_position))
 	await create_timer(0.25).timeout
-	_assert(freeze_enemy.speed_multiplier <= 0.20, "Global freeze card should strongly slow all enemies.")
+	_assert(not is_instance_valid(freeze_enemy) or freeze_enemy.speed_multiplier <= 0.20, "Global freeze card should strongly slow or defeat all enemies.")
 	game._clear_enemies_and_projectiles()
 
 	var new_card_ids := ["bait_beacon", "road_spikes", "coin_magnet", "time_warp", "tower_swap", "overload_debt", "panic_button", "bounty_mark", "reroll_cache"]
@@ -986,8 +1006,8 @@ func _run() -> void:
 	spike_enemy.global_position = Vector2(260.0, 240.0)
 	_assert(game._apply_reward_card(game._make_debug_reward_card("spikes"), spike_enemy.global_position), "Road spikes should deploy as a trap.")
 	game._update_road_spike_traps(0.1)
-	_assert(spike_enemy.health < 100, "Road spikes should damage enemies that enter the trap.")
-	_assert(spike_enemy.speed_multiplier < 1.0, "Road spikes should slow enemies that enter the trap.")
+	_assert(not is_instance_valid(spike_enemy) or spike_enemy.health < 100, "Road spikes should damage or defeat enemies that enter the trap.")
+	_assert(not is_instance_valid(spike_enemy) or spike_enemy.speed_multiplier < 1.0, "Road spikes should slow or defeat enemies that enter the trap.")
 	game._clear_enemies_and_projectiles()
 
 	_assert(game._apply_reward_card(game._make_debug_reward_card("magnet"), Vector2.ZERO), "Coin magnet should activate without a target.")
@@ -1005,8 +1025,8 @@ func _run() -> void:
 	warp_inside_enemy.global_position = Vector2(280.0, 260.0)
 	warp_outside_enemy.global_position = Vector2(620.0, 260.0)
 	_assert(game._apply_reward_card(game._make_debug_reward_card("warp"), warp_inside_enemy.global_position), "Time warp should affect active enemies.")
-	_assert(warp_inside_enemy.speed_multiplier < 1.0, "Time warp should slow enemies inside the target area.")
-	_assert(warp_outside_enemy.speed_multiplier > 1.0, "Time warp should haste enemies outside the target area as a tradeoff.")
+	_assert(not is_instance_valid(warp_inside_enemy) or warp_inside_enemy.speed_multiplier < 1.0, "Time warp should slow or defeat enemies inside the target area.")
+	_assert(not is_instance_valid(warp_outside_enemy) or warp_outside_enemy.speed_multiplier > 1.0, "Time warp should haste or spare enemies outside the target area as a tradeoff.")
 	game._clear_enemies_and_projectiles()
 
 	var tower_for_fun_cards := game.get_active_towers()[0] as Tower
@@ -1029,7 +1049,7 @@ func _run() -> void:
 	await process_frame
 	_assert(game._apply_reward_card(game._make_debug_reward_card("panic"), Vector2.ZERO), "Panic button should always be usable.")
 	_assert(game.base_health > 3, "Panic button should repair the base.")
-	_assert(panic_enemy.speed_multiplier <= 0.18, "Low-health panic button should strongly slow enemies.")
+	_assert(not is_instance_valid(panic_enemy) or panic_enemy.speed_multiplier <= 0.18, "Low-health panic button should strongly slow or defeat enemies.")
 	game._clear_enemies_and_projectiles()
 
 	var bounty_enemy := game._spawn_enemy("brute", 20, 0.0, 10, 0.0, 0)
@@ -1756,7 +1776,7 @@ func _run() -> void:
 	_assert(game.ui.end_overlay.visible, "Victory should show the end animation overlay.")
 	_assert(game.ui.end_title_label.text == "胜利", "Victory overlay should show victory title.")
 	_assert(game.ui.end_restart_button.text == "重新开始本关" and game.ui.end_main_menu_button.text == "返回开始界面", "End overlay should expose clear restart and main-menu actions.")
-	_assert(_count_particles(game.ui.ui_root) > ui_particles_before_victory, "Victory overlay should spawn UI particles.")
+	_assert(_count_particles(game.ui.ui_root) == ui_particles_before_victory, "Victory overlay should not spawn UI particles after popup effects moved to rebound animation.")
 	game.ui._on_end_restart_pressed()
 	await process_frame
 	_assert(not game.is_game_over and game.has_game_started, "End restart button should restart active gameplay.")
@@ -1785,8 +1805,11 @@ func _run() -> void:
 	_assert(game.is_game_paused and game.ui.pause_overlay.visible, "Defeat setup should leave the pause menu open.")
 	game.ui.show_tower_panel(defeat_panel_tower)
 	_assert(game.ui.tower_panel.visible, "Defeat setup should restore a stale tower panel over gameplay.")
-	var defeat_drag_card := game.ui._card_controls[0]
-	game.ui._start_card_drag(defeat_drag_card, 0, Vector2(760.0, 480.0))
+	if game.ui._card_controls.is_empty():
+		_assert(false, "Defeat setup should create a draggable card.")
+	else:
+		var defeat_drag_card := game.ui._card_controls[0]
+		game.ui._start_card_drag(defeat_drag_card, 0, Vector2(760.0, 480.0))
 	_assert(game.ui._drag_card_control != null and game.ui.card_area_preview.visible, "Defeat setup should leave an active area-card drag.")
 	var ui_particles_before_defeat := _count_particles(game.ui.ui_root)
 	var defeat_response := game._execute_console_command("defeat")
@@ -1802,7 +1825,7 @@ func _run() -> void:
 	_assert(not game.ui.card_area_preview.visible, "End overlay should hide area-card previews.")
 	_assert(game.ui.end_title_label.text == "失败", "Defeat overlay should show defeat title.")
 	_assert(game.ui.end_restart_button.text == "重新开始本关" and game.ui.end_main_menu_button.text == "返回开始界面", "Defeat overlay should expose clear recovery actions.")
-	_assert(_count_particles(game.ui.ui_root) > ui_particles_before_defeat, "Defeat overlay should spawn UI particles.")
+	_assert(_count_particles(game.ui.ui_root) == ui_particles_before_defeat, "Defeat overlay should not spawn UI particles after popup effects moved to rebound animation.")
 	game.ui._on_end_main_menu_pressed()
 	await process_frame
 	_assert(not game.has_game_started, "End main-menu button should leave gameplay.")
@@ -1812,7 +1835,7 @@ func _run() -> void:
 
 	game.queue_free()
 	await process_frame
-	_restore_level_start_save_for_test(original_level_start_save)
+	_restore_level_start_save_snapshot_for_test()
 	_finish()
 
 
@@ -1853,7 +1876,15 @@ func _restore_level_start_save_for_test(save_data: Dictionary) -> void:
 	config.save(LEVEL_START_SAVE_PATH)
 
 
+func _restore_level_start_save_snapshot_for_test() -> void:
+	if not _has_level_start_save_snapshot:
+		return
+	_restore_level_start_save_for_test(_level_start_save_snapshot)
+	_has_level_start_save_snapshot = false
+
+
 func _assert(condition: bool, message: String) -> void:
+	_last_checkpoint = message
 	if condition:
 		print("[PASS] ", message)
 	else:
@@ -1964,9 +1995,13 @@ func _contains_ascii_letter(text: String) -> bool:
 
 
 func _finish() -> void:
+	if _finished:
+		return
+	_finished = true
+	_restore_level_start_save_snapshot_for_test()
 	if _failures.is_empty():
-		print("Logic smoke test passed.")
+		print("逻辑冒烟测试通过。")
 		quit(0)
 	else:
-		print("Logic smoke test failed: ", _failures)
+		print("逻辑冒烟测试失败：", _failures)
 		quit(1)

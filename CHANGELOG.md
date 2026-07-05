@@ -4793,70 +4793,94 @@
 - 结果：PASS。
 ---
 
-## ver0.42.8 - English file naming cleanup
+## ver0.42.8 - 文件命名英文化整理
 
-- Renamed the tracked changelog file to `CHANGELOG.md`.
-- Renamed the local ignored continuation context file to `NEXT_SESSION_CONTEXT.md`.
-- Renamed the local ignored raw material folder to `raw_materials/`, and its nested folder to `raw_materials/assets/`.
-- Renamed the local ignored raw material archive to `raw_materials.zip`.
-- Updated `.gitignore` to use the new English-only local names.
-- Updated `README.md` project structure to include `CHANGELOG.md`.
-- Removed old Chinese filename references in the changelog text so repository-visible names are consistently English.
+- 将仓库内追踪的更新日志文件重命名为 `CHANGELOG.md`。
+- 将本地忽略的继续上下文文件重命名为 `NEXT_SESSION_CONTEXT.md`。
+- 将本地忽略的素材目录重命名为 `raw_materials/`，并将其子目录统一为英文路径。
+- 将本地忽略的素材压缩包重命名为 `raw_materials.zip`。
+- 更新 `.gitignore`，继续排除本地素材、备份、上下文文件、Godot 可执行文件和压缩包。
+- 更新 `README.md` 中的项目结构说明。
+- 清理更新日志里的旧中文路径引用，让仓库可见文件名保持英文。
 
-Verification:
-- Confirmed there are no tracked non-ASCII file paths in Git.
-- Confirmed top-level local non-ASCII filenames were removed by renaming them to English names.
+验证：
+- 已确认 Git 追踪文件中没有非 ASCII 路径。
+- 已确认顶层本地中文文件名已改为英文名称。
+
 ---
 
-## ver0.42.9 - Popup bounce cleanup
+## ver0.42.9 - 弹窗回弹效果整理
 
-- Replaced UI popup particle bursts with scale-and-fade rebound animations.
-- Update announcement popup, update history, confirm dialog, pause menu, level intro, level clear, console panel, and pending-card popup now use a cleaner `TRANS_BACK` bounce.
-- Changed the old GameUI UI particle helper to update its cached profile only; it no longer creates particle nodes for popup openings.
-- Kept combat/world particle effects unchanged.
+- 将 UI 弹窗粒子替换为缩放淡入的回弹动画。
+- 更新公告、公告历史、确认框、暂停菜单、关卡开场、关卡结算、控制台面板和待处理卡牌弹窗都改为更干净的 `TRANS_BACK` 回弹。
+- 旧的 GameUI 弹窗粒子辅助函数只保留配置缓存，不再为弹窗创建粒子节点。
+- 战斗和世界粒子效果保持不变。
 
-Verification:
-- Godot 4.7 `GameUI.gd` script `--check-only` passed.
-- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
-- Godot 4.7 `--headless --path . --quit` project parse passed.
+验证：
+- Godot 4.7 `GameUI.gd` 脚本语法检查通过。
+- Godot 4.7 `UpdateAnnouncements.gd` 脚本语法检查通过。
+- Godot 4.7 项目无窗口解析通过。
+
 ---
 
-## ver0.43.0 - Codex encyclopedia
+## ver0.43.0 - 作战图鉴功能
 
-- Added a homepage Codex button.
-- Added a Codex panel with a horizontal list for every tower and monster.
-- Added clickable Codex entries that open detailed stats, role/function descriptions, and pixel-style appearance previews.
-- Passed tower and enemy configuration data into the UI through safe duplicated config getters.
-- The Codex panel uses the existing clean bounce/slide UI language without popup particles.
+- 主页新增“图鉴”入口。
+- 新增作战图鉴面板，横向展示全部炮塔和怪物。
+- 图鉴条目可点击查看详细属性、定位/功能说明和外形预览。
+- `Main.gd` 通过安全复制的配置 getter 将炮塔、关卡和怪物配置传给 UI。
+- 图鉴面板沿用当前干净的滑入和回弹 UI 风格，不使用弹窗粒子。
 
-Verification:
-- Godot 4.7 `GameUI.gd` script `--check-only` passed.
-- Godot 4.7 `Main.gd` script `--check-only` passed.
-- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
-- Godot 4.7 `--headless --path . --quit` project parse passed.
+验证：
+- Godot 4.7 `GameUI.gd` 脚本语法检查通过。
+- Godot 4.7 `Main.gd` 脚本语法检查通过。
+- Godot 4.7 `UpdateAnnouncements.gd` 脚本语法检查通过。
+- Godot 4.7 项目无窗口解析通过。
+
 ---
 
-## ver0.43.1 - Codex preview repair
+## ver0.43.1 - 图鉴外观与中文文案修复
 
-- Replaced the handmade Codex preview drawings with actual `Tower` and `Enemy` preview nodes, so Codex appearances match in-game objects.
-- Fixed Codex detail Chinese text that had been corrupted into question marks.
-- Support/amplifier preview now uses the real tower augmentation overlay path instead of a separate fake icon.
+- 移除图鉴中手写的临时炮塔/怪物图案，改用 `Tower.gd` 和 `Enemy.gd` 的实际外观逻辑，确保图鉴外观与游戏内对象一致。
+- 修复图鉴详情中文说明被破坏成问号的问题。
+- 增幅塔预览改用真实炮塔增幅层显示路径，不再单独画假图标。
 
-Verification:
-- Godot 4.7 `GameUI.gd` script `--check-only` passed.
-- Godot 4.7 `Main.gd` script `--check-only` passed.
-- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
-- Godot 4.7 `--headless --path . --quit` project parse passed.
+验证：
+- Godot 4.7 `GameUI.gd` 脚本语法检查通过。
+- Godot 4.7 `Main.gd` 脚本语法检查通过。
+- Godot 4.7 `UpdateAnnouncements.gd` 脚本语法检查通过。
+- Godot 4.7 项目无窗口解析通过。
+
 ---
 
-## ver0.43.1 - Codex preview fix
+## ver0.43.2 - 图鉴怪物纯展示模式
 
-- Fixed Codex preview visuals to reuse the existing `Tower.gd` and `Enemy.gd` appearance logic instead of separate hand-drawn placeholder icons.
-- Added enemy visual preview mode so Codex monsters do not join gameplay groups, run movement/attack logic, or draw health bars/status effects.
-- Fixed broken Codex Chinese description text that had become question marks.
+- 为 `Enemy.gd` 增加图鉴专用纯展示模式。
+- 图鉴怪物预览继续复用怪物自身外观和动画资源，但不会加入战斗分组、移动、攻击或触发玩法逻辑。
+- 图鉴怪物预览不再绘制血条、减速圈、吸引/攻击等战斗状态表现。
+- 图鉴炮塔和怪物预览尺寸改为按预览框自动缩放。
 
-Verification:
-- Godot 4.7 `Enemy.gd` script `--check-only` passed.
-- Godot 4.7 `GameUI.gd` script `--check-only` passed.
-- Godot 4.7 `Main.gd` script `--check-only` passed.
+验证：
+- Godot 4.7 `Enemy.gd` 脚本语法检查通过。
+- Godot 4.7 `GameUI.gd` 脚本语法检查通过。
+- Godot 4.7 `Main.gd` 脚本语法检查通过。
 
+---
+
+## ver0.43.3 - 冒烟测试与日志修正
+
+- 将本轮更新日志继续保持中文记录，避免混入英文版本说明。
+- 修正图鉴预览里的增幅塔判断：由外层统一使用 `_is_support_tower_config` 后传入预览控件，避免内部类重新写一套配置判断。
+- 调整 `LogicSmokeTest.gd`：
+  - 启动、通过、失败和超时输出改为中文。
+  - 增加 150 秒内部超时和关卡开始存档恢复，避免冒烟测试静默挂死后污染本地存档。
+  - 将弹窗相关断言同步为“回弹动画，不生成 UI 粒子”。
+  - 对会被卡牌/陷阱击杀的测试怪物增加有效性判断，避免敌人已死亡后访问 `health` / `speed_multiplier` 直接中断测试。
+  - 对失败结算前的拖拽卡牌准备增加保护，避免前置断言失败后数组越界中断测试。
+
+验证：
+- Godot 4.7 `Enemy.gd` 脚本语法检查通过。
+- Godot 4.7 `GameUI.gd` 脚本语法检查通过。
+- Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。
+- 已实际运行 `LogicSmokeTest.gd`，结果为失败（退出码 1），不是跳过；当前仍有历史/现存失败项，主要集中在奖励卡牌回合发放、敌人类型规范化/缓存复用、更新公告文案和失败结算准备流程。
+- 已实际运行 `CodeStyleAuditTest.gd`，结果为失败；当前仍有 `Projectile.gd` 目标校验和 `Tower.gd` 配置清洗/目标校验相关审计项未处理，本轮未顺手改战斗逻辑。

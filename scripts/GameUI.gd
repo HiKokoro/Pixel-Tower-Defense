@@ -1,4 +1,4 @@
-﻿extends CanvasLayer
+extends CanvasLayer
 class_name GameUI
 
 const TOWER_PANEL_OPEN_POSITION := Vector2(694.0, 78.0)
@@ -355,10 +355,12 @@ class CodexIconPreview:
 	var item_kind: String = "tower"
 	var config: Dictionary = {}
 	var preview_node: Node2D
+	var support_item: bool = false
 
-	func set_item(new_kind: String, new_config: Dictionary) -> void:
+	func set_item(new_kind: String, new_config: Dictionary, new_support_item: bool = false) -> void:
 		item_kind = new_kind
 		config = new_config.duplicate(true)
+		support_item = new_support_item
 		_refresh_preview_node()
 		queue_redraw()
 
@@ -390,7 +392,7 @@ class CodexIconPreview:
 		var tower := Tower.new()
 		tower.setup(null, Vector2i.ZERO, config)
 		tower.selected = false
-		if _is_support_config():
+		if support_item:
 			tower.apply_augmentation(config)
 		return tower
 
@@ -402,8 +404,6 @@ class CodexIconPreview:
 		enemy.set_visual_preview_only(true)
 		return enemy
 
-	func _is_support_config() -> bool:
-		return str(config.get("category", "weapon")) == "support"
 
 	func _get_preview_scale() -> float:
 		var preview_extent := minf(size.x, size.y)
@@ -2667,7 +2667,7 @@ func _make_codex_entry_card(entry: Dictionary) -> Panel:
 	preview.position = Vector2(18.0, 8.0)
 	preview.size = Vector2(84.0, 70.0)
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	preview.set_item(kind, config)
+	preview.set_item(kind, config, kind == "tower" and _is_support_tower_config(config))
 	panel.add_child(preview)
 
 	var button := Button.new()
@@ -2685,7 +2685,7 @@ func _make_codex_entry_card(entry: Dictionary) -> Panel:
 func _select_codex_entry(entry: Dictionary) -> void:
 	var config: Dictionary = entry.get("config", {})
 	var kind := str(entry.get("kind", "tower"))
-	codex_detail_preview.set_item(kind, config)
+	codex_detail_preview.set_item(kind, config, kind == "tower" and _is_support_tower_config(config))
 	codex_detail_title_label.text = _get_codex_config_name(config)
 	codex_detail_title_label.add_theme_color_override("font_color", _get_codex_entry_color(entry).lightened(0.18))
 	codex_detail_meta_label.text = _format_codex_meta_text(kind, config)
