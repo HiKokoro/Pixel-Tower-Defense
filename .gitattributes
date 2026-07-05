@@ -1,4 +1,4 @@
-﻿# Keep Godot/text assets stable across platforms
+# Keep Godot/text assets stable across platforms
 *.gd text eol=lf
 *.tscn text eol=lf
 *.tres text eol=lf
