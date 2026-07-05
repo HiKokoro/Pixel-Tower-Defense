@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 
 const UpdateAnnouncements := preload("res://scripts/UpdateAnnouncements.gd")
 const LEVEL_START_SAVE_PATH := "user://level_start_save.cfg"
@@ -1999,9 +1999,19 @@ func _finish() -> void:
 		return
 	_finished = true
 	_restore_level_start_save_snapshot_for_test()
+	var exit_code := 0
 	if _failures.is_empty():
 		print("逻辑冒烟测试通过。")
-		quit(0)
 	else:
 		print("逻辑冒烟测试失败：", _failures)
-		quit(1)
+		exit_code = 1
+	call_deferred("_quit_after_cleanup", exit_code)
+
+
+func _quit_after_cleanup(exit_code: int) -> void:
+	# Windows 上 Godot 4.7 偶尔会在 --script 冒烟测试结束时，因为同一帧仍有
+	# queue_free 的 UI/特效节点等待释放而触发原生访问冲突。这里主动让引擎多
+	# 处理两帧清理队列，再退出进程，避免把脚本断言失败伪装成 Godot 崩溃。
+	await process_frame
+	await process_frame
+	quit(exit_code)

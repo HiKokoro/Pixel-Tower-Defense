@@ -4901,3 +4901,15 @@
 - Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。
 - 已实际运行 `LogicSmokeTest.gd`，结果为失败（退出码 1），不是跳过；当前仍有历史/现存失败项，主要集中在关卡敌人类型规范化、更新公告文案、奖励卡牌发放/使用、敌人缓存复用和失败结算准备流程。
 
+
+---
+
+## ver0.43.5 - 冒烟测试退出稳定性修正
+
+- 调整 `LogicSmokeTest.gd` 的收尾流程：失败或通过后不再同一帧直接退出，而是先恢复关卡开始存档，再延后两帧等待 Godot 清理 `queue_free` 队列，最后返回退出码。
+- 该改动用于降低 Windows 下 Godot 4.7 `--script` 冒烟测试结束时出现原生访问冲突的概率，避免把脚本断言失败误表现为 Godot 崩溃。
+- 不修改任何玩法、数值、UI 或战斗逻辑。
+
+验证：
+- Godot 4.7 `LogicSmokeTest.gd` 脚本语法检查通过。
+- 已使用 `--display-driver headless --rendering-driver dummy --audio-driver Dummy` 实际运行 `LogicSmokeTest.gd`，进程正常返回退出码 1，没有在本机复现 native crash；当前失败仍是现有断言项。
