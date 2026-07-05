@@ -1,7 +1,7 @@
-﻿extends RefCounted
+extends RefCounted
 class_name UpdateAnnouncements
 
-const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.42.7"
+const LATEST_ANNOUNCEMENT_FALLBACK_ID := "ver0.42.9"
 const MAX_PLAYER_ANNOUNCEMENTS: int = 5
 
 
@@ -14,6 +14,19 @@ static func get_latest_announcement_id() -> String:
 
 static func get_recent_announcements() -> Array[Dictionary]:
 	var announcements: Array[Dictionary] = [
+		{
+			"id": "ver0.42.9",
+			"version": "ver0.42.9",
+			"date": "2026-07-05",
+			"kind": "界面优化",
+			"title": "弹窗改成回弹效果",
+			"summary": "更新公告、确认框、暂停菜单和关卡提示改成干净的回弹弹出，不再用 UI 粒子抢画面。",
+			"bullets": [
+				"弹窗打开时使用缩放回弹和淡入。",
+				"确认弹窗、暂停菜单、更新公告和关卡提示都更利落。",
+				"战斗粒子不受影响，炮塔和敌人表现保持原样。",
+			],
+		},
 		{
 			"id": "ver0.42.7",
 			"version": "ver0.42.7",

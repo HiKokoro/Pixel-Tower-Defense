@@ -4806,3 +4806,17 @@
 Verification:
 - Confirmed there are no tracked non-ASCII file paths in Git.
 - Confirmed top-level local non-ASCII filenames were removed by renaming them to English names.
+---
+
+## ver0.42.9 - Popup bounce cleanup
+
+- Replaced UI popup particle bursts with scale-and-fade rebound animations.
+- Update announcement popup, update history, confirm dialog, pause menu, level intro, level clear, console panel, and pending-card popup now use a cleaner `TRANS_BACK` bounce.
+- Changed the old GameUI UI particle helper to update its cached profile only; it no longer creates particle nodes for popup openings.
+- Kept combat/world particle effects unchanged.
+
+Verification:
+- Godot 4.7 `GameUI.gd` script `--check-only` passed.
+- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
+- Godot 4.7 `--headless --path . --quit` project parse passed.
+

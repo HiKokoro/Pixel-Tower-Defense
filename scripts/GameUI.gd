@@ -1,8 +1,6 @@
 extends CanvasLayer
 class_name GameUI
 
-const ParticleBurst := preload("res://scripts/ParticleBurst.gd")
-
 const TOWER_PANEL_OPEN_POSITION := Vector2(694.0, 78.0)
 const TOWER_PANEL_CLOSED_POSITION := Vector2(714.0, 78.0)
 const TOWER_PANEL_ANIMATION_TIME := 0.16
@@ -186,11 +184,13 @@ var continue_game_button: Button
 var level_select_button: Button
 var update_announcement_button: Button
 var confirm_dialog_panel: Panel
+var confirm_dialog_card: Panel
 var confirm_dialog_title_label: Label
 var confirm_dialog_message_label: Label
 var confirm_dialog_confirm_button: Button
 var confirm_dialog_cancel_button: Button
 var update_announcement_popup: Panel
+var update_announcement_popup_card: Panel
 var update_announcement_popup_title_label: Label
 var update_announcement_popup_meta_label: Label
 var update_announcement_popup_body: RichTextLabel
@@ -213,6 +213,7 @@ var end_subtitle_label: Label
 var end_restart_button: Button
 var end_main_menu_button: Button
 var pause_overlay: Panel
+var pause_menu_panel: Panel
 var pause_hint_label: Label
 var pause_resume_button: Button
 var pause_restart_button: Button
@@ -1100,7 +1101,6 @@ func show_end_overlay(title: String, subtitle: String, title_color: Color) -> vo
 	end_title_label.scale = Vector2.ONE * 0.82
 	_end_animation_time = 0.0
 	_end_animation_active = true
-	_spawn_ui_particles(Vector2(480.0, 300.0), title_color, 86, 150.0, _get_end_overlay_particle_name(title_color))
 
 
 func hide_end_overlay() -> void:
@@ -1118,7 +1118,7 @@ func show_level_intro(level: int, level_name: String, total_levels: int, delay: 
 	level_banner_panel.visible = true
 	level_banner_panel.position = Vector2(300.0, -70.0)
 	level_banner_panel.modulate.a = 0.0
-	_spawn_ui_particles(Vector2(480.0, 86.0), ACCENT, 24, 48.0, "LevelIntroParticles")
+	_play_popup_bounce(level_banner_panel, 0.86, 0.24)
 
 	_level_banner_tween = create_tween()
 	if delay > 0.0:
@@ -1150,7 +1150,7 @@ func show_level_clear(level: int, level_name: String) -> void:
 	level_clear_panel.visible = true
 	level_clear_panel.position = Vector2(304.0, -142.0)
 	level_clear_panel.modulate.a = 0.0
-	_spawn_ui_particles(Vector2(480.0, 112.0), Color(0.42, 1.0, 0.62), 42, 72.0, "LevelClearParticles")
+	_play_popup_bounce(level_clear_panel, 0.84, 0.24)
 
 	_level_clear_tween = create_tween()
 	_level_clear_tween.tween_property(level_clear_panel, "position", Vector2(304.0, 92.0), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -1193,7 +1193,7 @@ func set_console_visible(visible: bool, animated: bool = true) -> void:
 		console_panel.modulate.a = 0.0 if animated else 1.0
 		console_input.grab_focus()
 		if animated:
-			_spawn_ui_particles(Vector2(480.0, 480.0), ACCENT, 18, 42.0, "ConsolePanelParticles")
+			_play_popup_bounce(console_panel, 0.96, 0.14)
 	else:
 		console_input.release_focus()
 
@@ -1223,11 +1223,20 @@ func write_console_line(text: String) -> void:
 	console_output.append_text(text + "\n")
 
 
+func _play_popup_bounce(target: Control, start_scale: float = 0.86, duration: float = 0.22) -> void:
+	if target == null:
+		return
+	target.pivot_offset = target.size * 0.5
+	target.scale = Vector2.ONE * start_scale
+	var tween := create_tween()
+	tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tween.tween_property(target, "scale", Vector2.ONE, duration).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
 func _spawn_ui_particles(screen_position: Vector2, color: Color, amount: int, radius: float, effect_name: String) -> void:
 	if ui_root == null:
 		return
 	_apply_ui_particle_profile(effect_name, amount, radius, color)
-	ParticleBurst.spawn(ui_root, screen_position, _ui_particle_config)
 
 
 func _get_end_overlay_particle_name(title_color: Color) -> String:
@@ -2227,12 +2236,12 @@ func show_latest_update_announcement(announcement: Dictionary) -> void:
 		str(announcement.get("kind", "")),
 	]
 	update_announcement_popup_body.text = _format_update_announcement_body(announcement)
-	_show_update_panel(update_announcement_popup, Color(0.58, 0.72, 1.0), "UpdatePopupParticles")
+	_show_update_panel(update_announcement_popup, update_announcement_popup_card)
 
 
 func show_update_announcement_history() -> void:
 	_refresh_update_announcement_history()
-	_show_update_panel(update_announcement_history_panel, WARNING, "UpdateHistoryParticles")
+	_show_update_panel(update_announcement_history_panel, update_announcement_history_panel)
 
 
 func hide_update_announcement_popup(notify_dismissed: bool = false) -> void:
@@ -2301,7 +2310,7 @@ func _get_update_announcement_bullets(announcement: Dictionary) -> Array[String]
 	return bullets
 
 
-func _show_update_panel(panel: Panel, particle_color: Color, particle_name: String) -> void:
+func _show_update_panel(panel: Panel, bounce_target: Control = null) -> void:
 	if panel == null:
 		return
 	if _update_announcement_tween != null and _update_announcement_tween.is_valid():
@@ -2309,7 +2318,8 @@ func _show_update_panel(panel: Panel, particle_color: Color, particle_name: Stri
 	panel.visible = true
 	panel.modulate.a = 0.0
 	panel.move_to_front()
-	_spawn_ui_particles(Vector2(480.0, 320.0), particle_color, 28, 70.0, particle_name)
+	var target := bounce_target if bounce_target != null else panel
+	_play_popup_bounce(target, 0.84, 0.24)
 	_update_announcement_tween = create_tween()
 	_update_announcement_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	_update_announcement_tween.tween_property(panel, "modulate:a", 1.0, 0.16)
@@ -2720,7 +2730,7 @@ func _refresh_card_hand() -> void:
 		var pending_effect_id := "%s:%s" % [str(_pending_card.get("id", "")), str(_pending_card.get("rarity", ""))]
 		if pending_effect_id != _pending_card_effect_id:
 			_pending_card_effect_id = pending_effect_id
-			_spawn_ui_particles(card_pending_panel.position + card_pending_panel.size * 0.5, _get_card_rarity_color(_pending_card), 28, 44.0, "PendingCardParticles")
+			_play_popup_bounce(card_pending_panel, 0.86, 0.20)
 	else:
 		_pending_card_effect_id = ""
 
@@ -3238,7 +3248,6 @@ func consume_card_and_refresh(index: int, cards: Array[Dictionary], pending_card
 		return
 
 	var panel := _card_controls[index]
-	_spawn_ui_particles(panel.position + panel.size * 0.5, ACCENT, 24, 38.0, effect_name)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_drag_card_index = -1
 	_drag_card_control = null
@@ -3262,7 +3271,6 @@ func _play_discard_animation(panel: Control, index: int) -> void:
 	for card_control in _card_controls:
 		if is_instance_valid(card_control):
 			card_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_spawn_ui_particles(panel.position + panel.size * 0.5, DANGER, 18, 28.0, "CardDiscardParticles")
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(panel, "position", panel.position + Vector2(0.0, 60.0), 0.16).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
@@ -3275,7 +3283,6 @@ func _play_discard_animation(panel: Control, index: int) -> void:
 func _set_build_panel_expanded(expanded: bool) -> void:
 	_build_panel_expanded = expanded
 	build_tower_button.text = _get_build_panel_toggle_text(expanded)
-	_spawn_ui_particles(Vector2(104.0, 588.0), ACCENT if expanded else TEXT_MUTED, 14, 24.0, "BuildPanelParticles")
 	if _build_panel_tween != null and _build_panel_tween.is_valid():
 		_build_panel_tween.kill()
 
@@ -3365,7 +3372,8 @@ func _create_pause_overlay(root: Control) -> void:
 	pause_overlay.add_theme_stylebox_override("panel", _panel_style(Color(0.010, 0.014, 0.018, 0.82), Color(0.0, 0.0, 0.0, 0.0), 0))
 	root.add_child(pause_overlay)
 
-	var menu_panel := Panel.new()
+	pause_menu_panel = Panel.new()
+	var menu_panel := pause_menu_panel
 	menu_panel.position = Vector2(318.0, 156.0)
 	menu_panel.size = Vector2(324.0, 328.0)
 	menu_panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -3419,7 +3427,8 @@ func _create_update_announcement_ui(root: Control) -> void:
 	update_announcement_popup.add_theme_stylebox_override("panel", _panel_style(Color(0.010, 0.014, 0.018, 0.78), Color(0.0, 0.0, 0.0, 0.0), 0))
 	root.add_child(update_announcement_popup)
 
-	var popup_card := Panel.new()
+	update_announcement_popup_card = Panel.new()
+	var popup_card := update_announcement_popup_card
 	popup_card.position = Vector2(236.0, 126.0)
 	popup_card.size = Vector2(488.0, 388.0)
 	popup_card.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -3513,7 +3522,8 @@ func _create_confirm_dialog(root: Control) -> void:
 	confirm_dialog_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.010, 0.014, 0.018, 0.72), Color(0.0, 0.0, 0.0, 0.0), 0))
 	root.add_child(confirm_dialog_panel)
 
-	var dialog_card := Panel.new()
+	confirm_dialog_card = Panel.new()
+	var dialog_card := confirm_dialog_card
 	dialog_card.position = Vector2(260.0, 208.0)
 	dialog_card.size = Vector2(440.0, 224.0)
 	dialog_card.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -3596,7 +3606,7 @@ func _show_confirm_dialog(mode: String, title: String, message: String, level_in
 	confirm_dialog_message_label.text = message
 	confirm_dialog_panel.visible = true
 	confirm_dialog_panel.modulate.a = 0.0
-	_spawn_ui_particles(Vector2(480.0, 320.0), WARNING, 18, 42.0, "ConfirmDialogParticles")
+	_play_popup_bounce(confirm_dialog_card, 0.82, 0.22)
 	var tween := create_tween()
 	tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	tween.tween_property(confirm_dialog_panel, "modulate:a", 1.0, 0.12)
@@ -3607,7 +3617,7 @@ func show_pause_menu() -> void:
 		_pause_overlay_tween.kill()
 	pause_overlay.visible = true
 	pause_overlay.modulate.a = 0.0
-	_spawn_ui_particles(Vector2(480.0, 320.0), Color(0.38, 0.78, 1.0), 20, 44.0, "PauseParticles")
+	_play_popup_bounce(pause_menu_panel, 0.86, 0.20)
 	_pause_overlay_tween = create_tween()
 	_pause_overlay_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	_pause_overlay_tween.tween_property(pause_overlay, "modulate:a", 1.0, 0.12)
@@ -3803,7 +3813,6 @@ func _animate_level_select_open() -> void:
 	start_overlay.position = Vector2.ZERO
 	level_select_panel.position = Vector2(960.0, 0.0)
 	level_select_panel.modulate.a = 0.0
-	_spawn_ui_particles(Vector2(760.0, 320.0), WARNING, 28, 58.0, "LevelSelectOpenParticles")
 
 	_screen_tween = create_tween()
 	_screen_tween.set_parallel(true)
@@ -3822,7 +3831,6 @@ func _animate_level_select_close() -> void:
 	level_select_panel.visible = true
 	start_overlay.position = Vector2(-180.0, 0.0)
 	start_overlay.modulate.a = 0.35
-	_spawn_ui_particles(Vector2(300.0, 320.0), ACCENT, 22, 46.0, "LevelSelectCloseParticles")
 
 	_screen_tween = create_tween()
 	_screen_tween.set_parallel(true)
@@ -3839,7 +3847,6 @@ func _animate_to_gameplay() -> void:
 	_kill_screen_tween()
 	var level_was_visible := level_select_panel.visible
 	start_overlay.visible = true
-	_spawn_ui_particles(Vector2(480.0, 360.0), ACCENT, 38, 76.0, "StartGameParticles")
 
 	_screen_tween = create_tween()
 	_screen_tween.set_parallel(true)
