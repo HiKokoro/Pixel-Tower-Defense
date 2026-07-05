@@ -8,13 +8,17 @@
 .agents/
 .codex/
 
-# Backups and temporary output
+# Backups, continuation notes, and temporary output
 .backup/
+下次继续上下文.md
 logic_progress.txt
 logic_progress.err.txt
 logic_rarity_test_output.txt
 *.tmp
 *.log
+
+# Unused/raw local material folders
+素材/
 
 # Local engine binaries and archives
 Godot_*.exe
