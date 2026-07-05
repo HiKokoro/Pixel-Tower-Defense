@@ -63,6 +63,12 @@ const START_GAME_BUTTON_TEXT := "开始游戏"
 const CONTINUE_GAME_BUTTON_TEXT := "继续游戏"
 const LEVEL_SELECT_BUTTON_TEXT := "选择关卡"
 const UPDATE_ANNOUNCEMENT_BUTTON_TEXT := "更新公告"
+const CODEX_BUTTON_TEXT := "图鉴"
+const CODEX_TITLE_TEXT := "作战图鉴"
+const CODEX_SUBTITLE_TEXT := "横向浏览所有怪物和炮塔，点击条目查看属性、功能和外形。"
+const CODEX_CLOSE_BUTTON_TEXT := "返回"
+const CODEX_TOWER_KIND_TEXT := "炮塔"
+const CODEX_ENEMY_KIND_TEXT := "怪物"
 const SAVE_OVERWRITE_TITLE_TEXT := "覆盖继续存档"
 const SAVE_OVERWRITE_MESSAGE_TEMPLATE := "从第%02d关 %s 开始会覆盖当前继续游戏存档。确认后，以后继续游戏会回到这一关的开局状态。"
 const EXIT_TO_START_TITLE_TEXT := "离开当前关卡"
@@ -183,6 +189,7 @@ var start_game_button: Button
 var continue_game_button: Button
 var level_select_button: Button
 var update_announcement_button: Button
+var codex_button: Button
 var confirm_dialog_panel: Panel
 var confirm_dialog_card: Panel
 var confirm_dialog_title_label: Label
@@ -197,6 +204,12 @@ var update_announcement_popup_body: RichTextLabel
 var update_announcement_history_panel: Panel
 var update_announcement_history_container: VBoxContainer
 var update_announcement_history_close_button: Button
+var codex_panel: Panel
+var codex_list_container: HBoxContainer
+var codex_detail_preview: CodexIconPreview
+var codex_detail_title_label: Label
+var codex_detail_meta_label: Label
+var codex_detail_body_label: RichTextLabel
 var level_select_panel: Panel
 var level_select_scroll: ScrollContainer
 var level_buttons_container: GridContainer
@@ -334,6 +347,104 @@ class AreaCardPreview:
 		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 72, Color(accent.r, accent.g, accent.b, 0.75), 3.0, true)
 		draw_line(Vector2(-12.0, 0.0), Vector2(12.0, 0.0), Color(accent.r, accent.g, accent.b, 0.95), 2.0, true)
 		draw_line(Vector2(0.0, -12.0), Vector2(0.0, 12.0), Color(accent.r, accent.g, accent.b, 0.95), 2.0, true)
+
+
+class CodexIconPreview:
+	extends Control
+
+	var item_kind: String = "tower"
+	var config: Dictionary = {}
+
+	func set_item(new_kind: String, new_config: Dictionary) -> void:
+		item_kind = new_kind
+		config = new_config.duplicate(true)
+		queue_redraw()
+
+	func _draw() -> void:
+		var center := size * 0.5
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.018, 0.026, 0.032, 0.88))
+		draw_rect(Rect2(Vector2.ONE, size - Vector2(2.0, 2.0)), _get_item_color().darkened(0.18), false, 2.0)
+		draw_set_transform(center, 0.0, Vector2.ONE)
+		if item_kind == "enemy":
+			_draw_enemy_preview()
+		else:
+			_draw_tower_preview()
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	func _draw_tower_preview() -> void:
+		var body := _get_item_color()
+		var barrel := _get_config_color("barrel_color", body.darkened(0.45))
+		var projectile := _get_config_color("projectile_color", body.lightened(0.35))
+		var type_id := str(config.get("id", "basic"))
+		draw_rect(Rect2(Vector2(-28.0, -28.0), Vector2(56.0, 56.0)), Color(0.08, 0.12, 0.15))
+		match type_id:
+			"rapid":
+				draw_rect(Rect2(Vector2(-20.0, -20.0), Vector2(40.0, 40.0)), body)
+				draw_line(Vector2(-6.0, 0.0), Vector2(34.0, 0.0), barrel, 5.0, false)
+				draw_line(Vector2(0.0, -8.0), Vector2(30.0, -8.0), barrel.lightened(0.15), 3.0, false)
+				draw_rect(Rect2(Vector2(30.0, -4.0), Vector2(8.0, 8.0)), projectile)
+			"shotgun":
+				draw_rect(Rect2(Vector2(-22.0, -18.0), Vector2(44.0, 36.0)), body)
+				for angle in [-0.42, -0.20, 0.0, 0.20, 0.42]:
+					var end := Vector2.RIGHT.rotated(angle) * 34.0
+					draw_line(Vector2.ZERO, end, barrel, 4.0, false)
+			"cannon":
+				draw_rect(Rect2(Vector2(-24.0, -24.0), Vector2(48.0, 48.0)), body.darkened(0.1))
+				draw_rect(Rect2(Vector2(-16.0, -16.0), Vector2(32.0, 32.0)), body.lightened(0.12))
+				draw_line(Vector2(-4.0, 0.0), Vector2(38.0, 0.0), barrel, 9.0, false)
+				draw_rect(Rect2(Vector2(34.0, -6.0), Vector2(12.0, 12.0)), projectile)
+			"sniper":
+				draw_colored_polygon(PackedVector2Array([Vector2(-24.0, 0.0), Vector2(0.0, -22.0), Vector2(24.0, 0.0), Vector2(0.0, 22.0)]), body)
+				draw_line(Vector2(-2.0, 0.0), Vector2(42.0, 0.0), barrel, 3.0, false)
+				draw_circle(Vector2.ZERO, 8.0, projectile)
+			"amplifier":
+				draw_rect(Rect2(Vector2(-22.0, -22.0), Vector2(44.0, 44.0)), body)
+				draw_arc(Vector2.ZERO, 26.0, 0.0, TAU, 40, projectile, 3.0, true)
+				draw_line(Vector2(-13.0, 0.0), Vector2(13.0, 0.0), projectile, 3.0, true)
+				draw_line(Vector2(0.0, -13.0), Vector2(0.0, 13.0), projectile, 3.0, true)
+			_:
+				draw_rect(Rect2(Vector2(-22.0, -22.0), Vector2(44.0, 44.0)), body)
+				draw_line(Vector2.ZERO, Vector2(34.0, 0.0), barrel, 5.0, false)
+				draw_rect(Rect2(Vector2(31.0, -4.0), Vector2(8.0, 8.0)), projectile)
+
+	func _draw_enemy_preview() -> void:
+		var body := _get_item_color()
+		var outline := _get_config_color("outline", body.darkened(0.55))
+		var radius := clampf(float(config.get("radius", 13.0)) * 1.55, 16.0, 32.0)
+		match str(config.get("shape", "circle")):
+			"square":
+				draw_rect(Rect2(Vector2(-radius, -radius), Vector2(radius * 2.0, radius * 2.0)), body)
+				draw_rect(Rect2(Vector2(-radius, -radius), Vector2(radius * 2.0, radius * 2.0)), outline, false, 3.0)
+			"diamond":
+				draw_colored_polygon(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, 0.0), Vector2(0.0, radius), Vector2(-radius, 0.0)]), body)
+				draw_polyline(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, 0.0), Vector2(0.0, radius), Vector2(-radius, 0.0), Vector2(0.0, -radius)]), outline, 3.0, true)
+			"triangle":
+				draw_colored_polygon(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, radius * 0.82), Vector2(-radius, radius * 0.82)]), body)
+				draw_polyline(PackedVector2Array([Vector2(0.0, -radius), Vector2(radius, radius * 0.82), Vector2(-radius, radius * 0.82), Vector2(0.0, -radius)]), outline, 3.0, true)
+			"hex":
+				var points := PackedVector2Array()
+				for index in range(6):
+					points.append(Vector2.RIGHT.rotated(TAU * float(index) / 6.0) * radius)
+				draw_colored_polygon(points, body)
+				var outline_points := points.duplicate()
+				outline_points.append(points[0])
+				draw_polyline(outline_points, outline, 3.0, true)
+			_:
+				draw_circle(Vector2.ZERO, radius, body)
+				draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, outline, 3.0, true)
+		draw_rect(Rect2(Vector2(-8.0, -7.0), Vector2(5.0, 5.0)), Color(1.0, 0.88, 0.68))
+		draw_rect(Rect2(Vector2(3.0, -7.0), Vector2(5.0, 5.0)), Color(1.0, 0.88, 0.68))
+		if bool(config.get("taunt", false)):
+			draw_arc(Vector2.ZERO, radius + 7.0, 0.0, TAU, 48, Color(0.95, 0.95, 0.78, 0.70), 3.0, true)
+
+	func _get_item_color() -> Color:
+		return _get_config_color("color", Color(0.42, 0.82, 1.0))
+
+	func _get_config_color(key: String, fallback: Color) -> Color:
+		var raw_value: Variant = config.get(key, fallback)
+		if raw_value is Color:
+			return raw_value
+		return fallback
 const CONSOLE_COMMANDS: Array[String] = [
 	"help",
 	"start",
@@ -378,7 +489,7 @@ const CONSOLE_CARD_ARGS: Array[String] = [
 ]
 
 
-func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionary] = []) -> void:
+func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionary] = [], enemy_configs: Array[Dictionary] = []) -> void:
 	layer = 10
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
@@ -491,24 +602,29 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	subtitle_label.add_theme_color_override("font_color", TEXT_MUTED)
 	start_overlay.add_child(subtitle_label)
 
-	start_game_button = _make_button(_get_start_game_button_text(), Vector2(390.0, 304.0), Vector2(180.0, 46.0), ACCENT)
+	start_game_button = _make_button(_get_start_game_button_text(), Vector2(390.0, 286.0), Vector2(180.0, 46.0), ACCENT)
 	start_game_button.pressed.connect(_on_start_game_pressed)
 	start_overlay.add_child(start_game_button)
 
-	continue_game_button = _make_button(_get_continue_game_button_text(), Vector2(390.0, 362.0), Vector2(180.0, 42.0), Color(0.58, 0.72, 1.0))
+	continue_game_button = _make_button(_get_continue_game_button_text(), Vector2(390.0, 340.0), Vector2(180.0, 42.0), Color(0.58, 0.72, 1.0))
 	continue_game_button.pressed.connect(_on_continue_game_pressed)
 	_set_button_enabled(continue_game_button, false)
 	start_overlay.add_child(continue_game_button)
 
-	level_select_button = _make_button(_get_level_select_button_text(), Vector2(390.0, 416.0), Vector2(180.0, 42.0), WARNING)
+	level_select_button = _make_button(_get_level_select_button_text(), Vector2(390.0, 394.0), Vector2(180.0, 42.0), WARNING)
 	level_select_button.pressed.connect(_on_level_select_pressed)
 	start_overlay.add_child(level_select_button)
 
-	update_announcement_button = _make_button(_get_update_announcement_button_text(), Vector2(390.0, 470.0), Vector2(180.0, 42.0), Color(0.58, 0.72, 1.0))
+	codex_button = _make_button(_get_codex_button_text(), Vector2(390.0, 448.0), Vector2(180.0, 42.0), ACCENT)
+	codex_button.pressed.connect(_on_codex_pressed)
+	start_overlay.add_child(codex_button)
+
+	update_announcement_button = _make_button(_get_update_announcement_button_text(), Vector2(390.0, 502.0), Vector2(180.0, 42.0), Color(0.58, 0.72, 1.0))
 	update_announcement_button.pressed.connect(_on_update_announcement_pressed)
 	start_overlay.add_child(update_announcement_button)
 
 	_create_level_select_panel(root, level_configs)
+	_create_codex_panel(root, tower_configs, enemy_configs)
 
 	_create_gameplay_overlays(root)
 	_create_card_hand_ui(root)
@@ -678,6 +794,22 @@ func _get_cancel_button_text() -> String:
 
 func _get_update_announcement_button_text() -> String:
 	return UPDATE_ANNOUNCEMENT_BUTTON_TEXT
+
+
+func _get_codex_button_text() -> String:
+	return CODEX_BUTTON_TEXT
+
+
+func _get_codex_title_text() -> String:
+	return CODEX_TITLE_TEXT
+
+
+func _get_codex_subtitle_text() -> String:
+	return CODEX_SUBTITLE_TEXT
+
+
+func _get_codex_close_button_text() -> String:
+	return CODEX_CLOSE_BUTTON_TEXT
 
 
 func _get_update_announcement_popup_title_text() -> String:
@@ -2450,6 +2582,216 @@ func _create_level_select_panel(root: Control, level_configs: Array[Dictionary])
 	level_select_panel.add_child(close_button)
 
 
+func _create_codex_panel(root: Control, tower_configs: Array[Dictionary], enemy_configs: Array[Dictionary]) -> void:
+	codex_panel = Panel.new()
+	codex_panel.position = Vector2(960.0, 0.0)
+	codex_panel.size = Vector2(960.0, 640.0)
+	codex_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	codex_panel.visible = false
+	codex_panel.modulate.a = 0.0
+	codex_panel.z_index = 102
+	codex_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.014, 0.020, 0.026, 0.98), ACCENT, 0))
+	root.add_child(codex_panel)
+	_add_tactical_background(codex_panel, ACCENT, false)
+
+	var title := Label.new()
+	title.text = _get_codex_title_text()
+	title.position = Vector2(260.0, 42.0)
+	title.size = Vector2(440.0, 42.0)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", TEXT_MAIN)
+	codex_panel.add_child(title)
+
+	var subtitle := Label.new()
+	subtitle.text = _get_codex_subtitle_text()
+	subtitle.position = Vector2(150.0, 88.0)
+	subtitle.size = Vector2(660.0, 28.0)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_color_override("font_color", TEXT_MUTED)
+	codex_panel.add_child(subtitle)
+
+	var list_scroll := ScrollContainer.new()
+	list_scroll.position = Vector2(54.0, 128.0)
+	list_scroll.size = Vector2(852.0, 138.0)
+	list_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	list_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	codex_panel.add_child(list_scroll)
+
+	codex_list_container = HBoxContainer.new()
+	codex_list_container.custom_minimum_size = Vector2(0.0, 124.0)
+	codex_list_container.add_theme_constant_override("separation", 12)
+	list_scroll.add_child(codex_list_container)
+
+	var detail_panel := Panel.new()
+	detail_panel.position = Vector2(94.0, 292.0)
+	detail_panel.size = Vector2(772.0, 246.0)
+	detail_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	detail_panel.add_theme_stylebox_override("panel", _panel_style(PANEL_INK, HUD_BORDER, 0))
+	codex_panel.add_child(detail_panel)
+
+	codex_detail_preview = CodexIconPreview.new()
+	codex_detail_preview.position = Vector2(26.0, 34.0)
+	codex_detail_preview.size = Vector2(158.0, 158.0)
+	detail_panel.add_child(codex_detail_preview)
+
+	codex_detail_title_label = Label.new()
+	codex_detail_title_label.position = Vector2(214.0, 28.0)
+	codex_detail_title_label.size = Vector2(500.0, 34.0)
+	codex_detail_title_label.add_theme_font_size_override("font_size", 25)
+	codex_detail_title_label.add_theme_color_override("font_color", TEXT_MAIN)
+	detail_panel.add_child(codex_detail_title_label)
+
+	codex_detail_meta_label = Label.new()
+	codex_detail_meta_label.position = Vector2(214.0, 64.0)
+	codex_detail_meta_label.size = Vector2(500.0, 24.0)
+	codex_detail_meta_label.add_theme_color_override("font_color", WARNING)
+	detail_panel.add_child(codex_detail_meta_label)
+
+	codex_detail_body_label = RichTextLabel.new()
+	codex_detail_body_label.position = Vector2(214.0, 96.0)
+	codex_detail_body_label.size = Vector2(514.0, 122.0)
+	codex_detail_body_label.fit_content = false
+	codex_detail_body_label.scroll_active = true
+	codex_detail_body_label.add_theme_color_override("default_color", TEXT_MUTED)
+	codex_detail_body_label.add_theme_font_size_override("normal_font_size", 14)
+	codex_detail_body_label.add_theme_stylebox_override("normal", _panel_style(Color(0.010, 0.016, 0.020, 0.86), Color(0.14, 0.25, 0.27), 0))
+	detail_panel.add_child(codex_detail_body_label)
+
+	var entries := _make_codex_entries(tower_configs, enemy_configs)
+	for entry in entries:
+		codex_list_container.add_child(_make_codex_entry_card(entry as Dictionary))
+	if not entries.is_empty():
+		_select_codex_entry(entries[0] as Dictionary)
+
+	var close_button := _make_button(_get_codex_close_button_text(), Vector2(420.0, 582.0), Vector2(120.0, 40.0), DANGER)
+	close_button.pressed.connect(_on_codex_close_pressed)
+	codex_panel.add_child(close_button)
+
+
+func _make_codex_entries(tower_configs: Array[Dictionary], enemy_configs: Array[Dictionary]) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for tower_config in tower_configs:
+		entries.append({"kind": "tower", "config": (tower_config as Dictionary).duplicate(true)})
+	for enemy_config in enemy_configs:
+		entries.append({"kind": "enemy", "config": (enemy_config as Dictionary).duplicate(true)})
+	return entries
+
+
+func _make_codex_entry_card(entry: Dictionary) -> Panel:
+	var config: Dictionary = entry.get("config", {})
+	var kind := str(entry.get("kind", "tower"))
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(120.0, 122.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.add_theme_stylebox_override("panel", _panel_style(Color(0.020, 0.030, 0.036, 0.94), _get_codex_entry_color(entry), 0))
+
+	var preview := CodexIconPreview.new()
+	preview.position = Vector2(18.0, 8.0)
+	preview.size = Vector2(84.0, 70.0)
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview.set_item(kind, config)
+	panel.add_child(preview)
+
+	var button := Button.new()
+	button.position = Vector2(8.0, 82.0)
+	button.size = Vector2(104.0, 34.0)
+	button.text = "%s\n%s" % [_get_codex_kind_label(kind), _get_codex_config_name(config)]
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_apply_button_style(button, _get_codex_entry_color(entry), true)
+	button.pressed.connect(_on_codex_entry_pressed.bind(entry))
+	panel.add_child(button)
+	return panel
+
+
+func _select_codex_entry(entry: Dictionary) -> void:
+	var config: Dictionary = entry.get("config", {})
+	var kind := str(entry.get("kind", "tower"))
+	codex_detail_preview.set_item(kind, config)
+	codex_detail_title_label.text = _get_codex_config_name(config)
+	codex_detail_title_label.add_theme_color_override("font_color", _get_codex_entry_color(entry).lightened(0.18))
+	codex_detail_meta_label.text = _format_codex_meta_text(kind, config)
+	codex_detail_body_label.text = _format_codex_body_text(kind, config)
+	_play_popup_bounce(codex_detail_preview, 0.78, 0.18)
+
+
+func _get_codex_kind_label(kind: String) -> String:
+	return CODEX_ENEMY_KIND_TEXT if kind == "enemy" else CODEX_TOWER_KIND_TEXT
+
+
+func _get_codex_config_name(config: Dictionary) -> String:
+	var display_name := str(config.get("name", "")).strip_edges()
+	return display_name if not display_name.is_empty() else "Unknown"
+
+
+func _get_codex_entry_color(entry: Dictionary) -> Color:
+	var config: Dictionary = entry.get("config", {})
+	var raw_color: Variant = config.get("color", ACCENT)
+	if raw_color is Color:
+		return raw_color
+	return ACCENT
+
+
+func _format_codex_meta_text(kind: String, config: Dictionary) -> String:
+	if kind == "enemy":
+		return "%s  |  ID: %s" % [CODEX_ENEMY_KIND_TEXT, str(config.get("id", "enemy"))]
+	return "%s  |  %s  |  ID: %s" % [CODEX_TOWER_KIND_TEXT, str(config.get("category_label", DEFAULT_TOWER_CATEGORY_LABEL)), str(config.get("id", "tower"))]
+
+
+func _format_codex_body_text(kind: String, config: Dictionary) -> String:
+	if kind == "enemy":
+		return _format_enemy_codex_body(config)
+	return _format_tower_codex_body(config)
+
+
+func _format_tower_codex_body(config: Dictionary) -> String:
+	var lines: Array[String] = []
+	lines.append("???%d ??" % _get_tower_config_cost(config))
+	lines.append("???? %d ?" % (_get_tower_config_unlock_level(config) + 1))
+	if _is_support_tower_config(config):
+		lines.append("????? +%d%%??? +%d%%" % [_format_multiplier_bonus(config, "damage_multiplier"), _format_multiplier_bonus(config, "range_multiplier")])
+	else:
+		lines.append("???%d  |  ???%d  |  ?????%.2f ?" % [_get_tower_config_damage(config), int(_get_tower_config_range(config)), _get_tower_config_interval(config)])
+		lines.append("?????%d" % int(float(config.get("projectile_speed", 0.0))))
+	var type_id := str(config.get("id", "basic"))
+	match type_id:
+		"rapid":
+			lines.append("???????????????????????????")
+		"shotgun":
+			lines.append("?????????????????????????")
+		"cannon":
+			lines.append("?????????????? %.0f????? %.0f%%?" % [float(config.get("splash_radius", 0.0)), float(config.get("splash_ratio", 0.0)) * 100.0])
+		"sniper":
+			lines.append("????????????? %d ?????????????" % int(config.get("pierce", 0)))
+		"amplifier":
+			lines.append("???????????????????????????")
+		_:
+			lines.append("????????????????????")
+	return "\n".join(lines)
+
+
+func _format_enemy_codex_body(config: Dictionary) -> String:
+	var lines: Array[String] = []
+	lines.append("???? x%.2f  |  ???? x%.2f  |  ???? x%.2f" % [float(config.get("health_mul", 1.0)), float(config.get("speed_mul", 1.0)), float(config.get("reward_mul", 1.0))])
+	lines.append("?????%.1f  |  ?????%d" % [float(config.get("radius", 12.0)), int(config.get("base_damage", 1))])
+	match str(config.get("id", "grunt")):
+		"runner":
+			lines.append("?????????????????????????????")
+		"brute":
+			lines.append("??????????????????????????")
+		"shield":
+			lines.append("????????????????????????")
+		"taunt":
+			lines.append("?????????????????????????")
+		"elite":
+			lines.append("????????????????????????")
+		_:
+			lines.append("??????????????????????")
+	return "\n".join(lines)
+
+
 func _create_gameplay_overlays(root: Control) -> void:
 	level_banner_panel = Panel.new()
 	level_banner_panel.position = Vector2(300.0, -70.0)
@@ -3771,6 +4113,18 @@ func _on_level_select_pressed() -> void:
 	_animate_level_select_open()
 
 
+func _on_codex_pressed() -> void:
+	_animate_codex_open()
+
+
+func _on_codex_close_pressed() -> void:
+	_animate_codex_close()
+
+
+func _on_codex_entry_pressed(entry: Dictionary) -> void:
+	_select_codex_entry(entry)
+
+
 func _on_update_announcement_pressed() -> void:
 	show_update_announcement_history()
 
@@ -3843,6 +4197,53 @@ func _animate_level_select_close() -> void:
 	)
 
 
+func _animate_codex_open() -> void:
+	_kill_screen_tween()
+	start_overlay.visible = true
+	codex_panel.visible = true
+	start_overlay.position = Vector2.ZERO
+	codex_panel.position = Vector2(960.0, 0.0)
+	codex_panel.modulate.a = 0.0
+	_play_popup_bounce(codex_panel, 0.98, 0.16)
+
+	_screen_tween = create_tween()
+	_screen_tween.set_parallel(true)
+	_screen_tween.tween_property(start_overlay, "position", Vector2(-180.0, 0.0), 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_screen_tween.tween_property(start_overlay, "modulate:a", 0.35, 0.22)
+	_screen_tween.tween_property(codex_panel, "position", Vector2.ZERO, 0.32).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_screen_tween.tween_property(codex_panel, "modulate:a", 1.0, 0.24)
+	_screen_tween.finished.connect(func() -> void:
+		_apply_codex_final_state(true)
+	)
+
+
+func _animate_codex_close() -> void:
+	_kill_screen_tween()
+	start_overlay.visible = true
+	codex_panel.visible = true
+	start_overlay.position = Vector2(-180.0, 0.0)
+	start_overlay.modulate.a = 0.35
+
+	_screen_tween = create_tween()
+	_screen_tween.set_parallel(true)
+	_screen_tween.tween_property(start_overlay, "position", Vector2.ZERO, 0.30).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_screen_tween.tween_property(start_overlay, "modulate:a", 1.0, 0.22)
+	_screen_tween.tween_property(codex_panel, "position", Vector2(960.0, 0.0), 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_screen_tween.tween_property(codex_panel, "modulate:a", 0.0, 0.18)
+	_screen_tween.finished.connect(func() -> void:
+		_apply_codex_final_state(false)
+	)
+
+
+func _apply_codex_final_state(open: bool) -> void:
+	start_overlay.visible = true
+	start_overlay.position = Vector2(-180.0, 0.0) if open else Vector2.ZERO
+	start_overlay.modulate.a = 0.35 if open else 1.0
+	codex_panel.visible = open
+	codex_panel.position = Vector2.ZERO if open else Vector2(960.0, 0.0)
+	codex_panel.modulate.a = 1.0 if open else 0.0
+
+
 func _animate_to_gameplay() -> void:
 	_kill_screen_tween()
 	var level_was_visible := level_select_panel.visible
@@ -3867,6 +4268,10 @@ func _apply_start_screen_final_state() -> void:
 	level_select_panel.visible = false
 	level_select_panel.position = Vector2(960.0, 0.0)
 	level_select_panel.modulate.a = 0.0
+	if codex_panel != null:
+		codex_panel.visible = false
+		codex_panel.position = Vector2(960.0, 0.0)
+		codex_panel.modulate.a = 0.0
 
 
 func _apply_level_select_final_state(open: bool) -> void:
@@ -3881,6 +4286,10 @@ func _apply_level_select_final_state(open: bool) -> void:
 func _apply_gameplay_screen_final_state() -> void:
 	start_overlay.visible = false
 	level_select_panel.visible = false
+	if codex_panel != null:
+		codex_panel.visible = false
+		codex_panel.position = Vector2(960.0, 0.0)
+		codex_panel.modulate.a = 0.0
 	start_overlay.position = Vector2.ZERO
 	level_select_panel.position = Vector2(960.0, 0.0)
 	start_overlay.modulate.a = 1.0

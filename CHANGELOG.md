@@ -4819,4 +4819,19 @@ Verification:
 - Godot 4.7 `GameUI.gd` script `--check-only` passed.
 - Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
 - Godot 4.7 `--headless --path . --quit` project parse passed.
+---
+
+## ver0.43.0 - Codex encyclopedia
+
+- Added a homepage Codex button.
+- Added a Codex panel with a horizontal list for every tower and monster.
+- Added clickable Codex entries that open detailed stats, role/function descriptions, and pixel-style appearance previews.
+- Passed tower and enemy configuration data into the UI through safe duplicated config getters.
+- The Codex panel uses the existing clean bounce/slide UI language without popup particles.
+
+Verification:
+- Godot 4.7 `GameUI.gd` script `--check-only` passed.
+- Godot 4.7 `Main.gd` script `--check-only` passed.
+- Godot 4.7 `UpdateAnnouncements.gd` script `--check-only` passed.
+- Godot 4.7 `--headless --path . --quit` project parse passed.
 

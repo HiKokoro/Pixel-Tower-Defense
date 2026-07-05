@@ -884,6 +884,14 @@ func get_level_configs() -> Array[Dictionary]:
 	return result
 
 
+func get_enemy_type_configs() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for type_id in ["grunt", "runner", "brute", "shield", "taunt", "elite"]:
+		if enemy_type_configs.has(type_id):
+			result.append((enemy_type_configs[type_id] as Dictionary).duplicate(true))
+	return result
+
+
 func _get_tower_type_display_name(type_id: String) -> String:
 	var config := get_tower_config(type_id)
 	var display_name := str(config.get("name", "")).strip_edges()
@@ -1600,7 +1608,7 @@ func _create_ui() -> void:
 	ui = GameUI.new()
 	ui.name = "GameUI"
 	add_child(ui)
-	ui.setup(get_tower_configs(), get_level_configs())
+	ui.setup(get_tower_configs(), get_level_configs(), get_enemy_type_configs())
 	ui.set_update_announcements(UpdateAnnouncementsData.get_recent_announcements())
 	ui.set_highest_unlocked_level(highest_unlocked_level_index)
 	ui.set_tower_unlock_level(current_level_index)
