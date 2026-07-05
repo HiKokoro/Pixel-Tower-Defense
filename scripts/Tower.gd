@@ -842,6 +842,8 @@ func _draw() -> void:
 	var barrel_direction := _barrel_direction
 
 	match tower_type_id:
+		"amplifier":
+			_draw_amplifier_tower(barrel_direction)
 		"rapid":
 			_draw_rapid_tower(barrel_direction)
 		"shotgun":
@@ -866,57 +868,58 @@ func _draw_contact_shadow() -> void:
 
 
 func _draw_basic_tower(direction: Vector2) -> void:
-	_draw_pixel_base(22.0, tower_color)
-	_draw_pixel_barrel(direction, 8.0, 30.0, 8.0)
-	draw_rect(Rect2(Vector2(-5.0, -5.0), Vector2(10.0, 10.0)), Color(0.88, 0.95, 1.0))
-	draw_rect(Rect2(Vector2(-2.0, -2.0), Vector2(4.0, 4.0)), tower_color.darkened(0.25))
+	_draw_64px_chassis(tower_color, tower_color.lightened(0.22), Color(0.08, 0.13, 0.18))
+	_draw_directional_barrel(direction, 33.0, 8.0, barrel_color, tower_color.lightened(0.28), 8.0)
+	_draw_rect_center(Vector2.ZERO, Vector2(18.0, 18.0), tower_color.lightened(0.12))
+	_draw_rect_center(Vector2.ZERO, Vector2(10.0, 10.0), Color(0.88, 0.95, 1.0))
+	_draw_rect_center(Vector2.ZERO, Vector2(4.0, 4.0), projectile_color)
+	_draw_corner_bolts(Color(0.78, 0.94, 1.0, 0.82), 23.0, 4.0)
 	if level >= 3:
-		for marker in [Vector2(-16.0, -16.0), Vector2(10.0, -16.0), Vector2(-16.0, 10.0), Vector2(10.0, 10.0)]:
-			draw_rect(Rect2(marker, Vector2(6.0, 6.0)), Color(0.78, 0.94, 1.0, 0.86))
+		_draw_rect_center(Vector2(0.0, -22.0), Vector2(20.0, 4.0), projectile_color.lightened(0.16))
+		_draw_rect_center(Vector2(0.0, 22.0), Vector2(20.0, 4.0), projectile_color.lightened(0.04))
 
 
 func _draw_rapid_tower(direction: Vector2) -> void:
 	var side := direction.orthogonal()
-	draw_rect(Rect2(Vector2(-20.0, -16.0), Vector2(40.0, 32.0)), Color(0.08, 0.16, 0.13))
-	draw_rect(Rect2(Vector2(-14.0, -14.0), Vector2(28.0, 28.0)), tower_color)
-	draw_rect(Rect2(Vector2(-18.0, 8.0), Vector2(36.0, 8.0)), tower_color.darkened(0.18))
-	var barrel_offsets := [-5.0, 5.0] if level < 3 else [-8.0, 0.0, 8.0]
+	_draw_64px_chassis(tower_color, Color(0.66, 1.0, 0.78), Color(0.05, 0.13, 0.11))
+	_draw_rect_center(Vector2(-15.0, 11.0), Vector2(12.0, 12.0), tower_color.darkened(0.16))
+	_draw_rect_center(Vector2(15.0, 11.0), Vector2(12.0, 12.0), tower_color.darkened(0.16))
+	_draw_rect_center(Vector2(0.0, -15.0), Vector2(24.0, 6.0), Color(0.62, 1.0, 0.78, 0.72))
+	var barrel_offsets := [-6.0, 6.0] if level < 3 else [-9.0, 0.0, 9.0]
 	for offset in barrel_offsets:
-		var start: Vector2 = side * float(offset) + direction * -4.0
-		var end: Vector2 = side * float(offset) + direction * 27.0
-		draw_line(start.snapped(Vector2.ONE), end.snapped(Vector2.ONE), barrel_color, 4.0, false)
-		draw_rect(Rect2(end.snapped(Vector2.ONE) - Vector2(3.0, 3.0), Vector2(6.0, 6.0)), Color(0.72, 1.0, 0.84))
-	draw_rect(Rect2(Vector2(-4.0, -4.0), Vector2(8.0, 8.0)), Color(0.90, 1.0, 0.88))
-	if level >= 2:
-		draw_rect(Rect2(Vector2(-10.0, -20.0), Vector2(20.0, 5.0)), Color(0.62, 1.0, 0.78, 0.72))
+		var center := side * float(offset) + direction * 14.0
+		_draw_directional_barrel_at(center, direction, 34.0, 4.0, barrel_color, Color(0.72, 1.0, 0.84), 5.0)
+		_draw_rect_center(side * float(offset) + direction * -5.0, Vector2(5.0, 8.0), barrel_color.lightened(0.12))
+	_draw_rect_center(Vector2.ZERO, Vector2(14.0, 14.0), Color(0.90, 1.0, 0.88))
+	_draw_rect_center(Vector2.ZERO, Vector2(6.0, 6.0), tower_color.darkened(0.18))
 
 
 func _draw_shotgun_tower(direction: Vector2) -> void:
 	var side := direction.orthogonal()
-	draw_rect(Rect2(Vector2(-22.0, -18.0), Vector2(44.0, 36.0)), Color(0.15, 0.11, 0.06))
-	draw_rect(Rect2(Vector2(-16.0, -14.0), Vector2(32.0, 28.0)), tower_color)
-	var barrel_offsets := [-8.0, 0.0, 8.0] if level < 3 else [-12.0, -4.0, 4.0, 12.0]
+	_draw_64px_chassis(tower_color, Color(1.0, 0.82, 0.36), Color(0.15, 0.11, 0.06))
+	_draw_rect_center(Vector2(0.0, 13.0), Vector2(34.0, 10.0), tower_color.darkened(0.18))
+	var barrel_offsets := [-9.0, 0.0, 9.0] if level < 3 else [-13.0, -4.5, 4.5, 13.0]
 	for offset in barrel_offsets:
-		var start: Vector2 = side * float(offset) + direction * -3.0
-		var end: Vector2 = side * float(offset) + direction * 25.0
-		draw_line(start.snapped(Vector2.ONE), end.snapped(Vector2.ONE), barrel_color, 4.0, false)
-		draw_rect(Rect2(end.snapped(Vector2.ONE) - Vector2(3.0, 3.0), Vector2(6.0, 6.0)), Color(1.0, 0.82, 0.36))
-	draw_rect(Rect2(Vector2(-6.0, -6.0), Vector2(12.0, 12.0)), Color(1.0, 0.92, 0.62))
+		var center := side * float(offset) + direction * 13.0
+		_draw_directional_barrel_at(center, direction, 30.0, 5.0, barrel_color, Color(1.0, 0.82, 0.36), 6.0)
+		_draw_rect_center(side * float(offset) + direction * -6.0, Vector2(5.0, 7.0), Color(1.0, 0.70, 0.28, 0.75))
+	_draw_rect_center(Vector2.ZERO, Vector2(18.0, 18.0), Color(1.0, 0.92, 0.62))
+	_draw_rect_center(Vector2.ZERO, Vector2(8.0, 8.0), tower_color.darkened(0.22))
 	if level >= 2:
 		var cone_left := direction.rotated(-maxf(spread_angle, 0.34) * 0.5)
 		var cone_right := direction.rotated(maxf(spread_angle, 0.34) * 0.5)
-		draw_line(Vector2.ZERO, cone_left * 28.0, Color(1.0, 0.76, 0.34, 0.50), 2.0, false)
-		draw_line(Vector2.ZERO, cone_right * 28.0, Color(1.0, 0.76, 0.34, 0.50), 2.0, false)
+		draw_line(Vector2.ZERO, cone_left * 31.0, Color(1.0, 0.76, 0.34, 0.50), 2.0, false)
+		draw_line(Vector2.ZERO, cone_right * 31.0, Color(1.0, 0.76, 0.34, 0.50), 2.0, false)
 
 
 func _draw_cannon_tower(direction: Vector2) -> void:
-	draw_rect(Rect2(Vector2(-24.0, -24.0), Vector2(48.0, 48.0)), Color(0.12, 0.10, 0.08))
-	draw_rect(Rect2(Vector2(-18.0, -18.0), Vector2(36.0, 36.0)), tower_color)
-	draw_rect(Rect2(Vector2(-12.0, -12.0), Vector2(24.0, 24.0)), tower_color.lightened(0.12))
-	_draw_pixel_barrel(direction, 12.0, 34.0, 14.0)
-	draw_rect(Rect2(Vector2(-7.0, -7.0), Vector2(14.0, 14.0)), Color(1.0, 0.77, 0.36))
+	_draw_64px_heavy_chassis(tower_color, Color(1.0, 0.62, 0.22), Color(0.12, 0.10, 0.08))
+	_draw_directional_barrel(direction, 37.0, 13.0, barrel_color, Color(1.0, 0.58, 0.22), 15.0)
+	_draw_rect_center(Vector2.ZERO, Vector2(25.0, 25.0), tower_color.lightened(0.10))
+	_draw_rect_center(Vector2.ZERO, Vector2(14.0, 14.0), Color(1.0, 0.77, 0.36))
+	_draw_rect_center(direction * 21.0, Vector2(11.0, 17.0), barrel_color.darkened(0.08))
 	if splash_radius > 0.0:
-		draw_arc(Vector2.ZERO, 28.0, 0.0, TAU, 32, Color(1.0, 0.62, 0.22, 0.55), 3.0, false)
+		draw_arc(Vector2.ZERO, 30.0, 0.0, TAU, 40, Color(1.0, 0.62, 0.22, 0.55), 3.0, false)
 	if level >= 3:
 		for marker in [Vector2(-24.0, -6.0), Vector2(18.0, -6.0), Vector2(-6.0, -24.0), Vector2(-6.0, 18.0)]:
 			draw_rect(Rect2(marker, Vector2(12.0, 12.0)), Color(1.0, 0.45, 0.18, 0.58))
@@ -924,26 +927,26 @@ func _draw_cannon_tower(direction: Vector2) -> void:
 
 func _draw_sniper_tower(direction: Vector2) -> void:
 	var side := direction.orthogonal()
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0.0, -24.0),
-		Vector2(24.0, 0.0),
-		Vector2(0.0, 24.0),
-		Vector2(-24.0, 0.0),
-	]), Color(0.11, 0.10, 0.18))
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0.0, -16.0),
-		Vector2(16.0, 0.0),
-		Vector2(0.0, 16.0),
-		Vector2(-16.0, 0.0),
-	]), tower_color)
-	_draw_pixel_barrel(direction, 4.0, 42.0, 5.0)
-	draw_line(side * -9.0 + direction * 12.0, side * 9.0 + direction * 12.0, Color(0.92, 0.90, 1.0, 0.72), 2.0, false)
-	draw_line((direction * 10.0).snapped(Vector2.ONE), (direction * 30.0).snapped(Vector2.ONE), Color(0.86, 0.82, 1.0), 2.0, false)
-	draw_rect(Rect2((direction * 41.0).snapped(Vector2.ONE) - Vector2(3.0, 3.0), Vector2(6.0, 6.0)), Color(0.86, 0.82, 1.0))
-	draw_rect(Rect2(Vector2(-4.0, -4.0), Vector2(8.0, 8.0)), Color(0.94, 0.90, 1.0))
+	_draw_64px_diamond_chassis(tower_color, Color(0.86, 0.82, 1.0), Color(0.11, 0.10, 0.18))
+	_draw_directional_barrel(direction, 46.0, 4.0, barrel_color, Color(0.86, 0.82, 1.0), 6.0)
+	_draw_directional_barrel_at(direction * 15.0, direction, 20.0, 2.0, Color(0.86, 0.82, 1.0), Color(0.94, 0.90, 1.0), 3.0)
+	draw_line((side * -11.0 + direction * 11.0).snapped(Vector2.ONE), (side * 11.0 + direction * 11.0).snapped(Vector2.ONE), Color(0.92, 0.90, 1.0, 0.72), 2.0, false)
+	draw_line((side * -7.0 + direction * 26.0).snapped(Vector2.ONE), (side * 7.0 + direction * 26.0).snapped(Vector2.ONE), Color(0.86, 0.82, 1.0, 0.55), 2.0, false)
+	_draw_rect_center(Vector2.ZERO, Vector2(13.0, 13.0), Color(0.94, 0.90, 1.0))
+	_draw_rect_center(Vector2.ZERO, Vector2(5.0, 5.0), tower_color.darkened(0.18))
 	if level >= 3:
 		draw_circle(Vector2.ZERO, 8.0, Color(0.86, 0.82, 1.0, 0.35))
-		draw_arc(Vector2.ZERO, 18.0, 0.0, TAU, 32, Color(0.86, 0.82, 1.0, 0.62), 2.0, false)
+		draw_arc(Vector2.ZERO, 20.0, 0.0, TAU, 36, Color(0.86, 0.82, 1.0, 0.62), 2.0, false)
+
+
+func _draw_amplifier_tower(_direction: Vector2) -> void:
+	_draw_64px_chassis(tower_color, Color(0.52, 1.0, 0.78), Color(0.05, 0.13, 0.10))
+	draw_arc(Vector2.ZERO, 24.0, 0.0, TAU, 40, Color(0.52, 1.0, 0.78, 0.55), 3.0, false)
+	draw_arc(Vector2.ZERO, 15.0, 0.0, TAU, 32, Color(0.90, 1.0, 0.88, 0.65), 2.0, false)
+	_draw_rect_center(Vector2.ZERO, Vector2(16.0, 16.0), Color(0.78, 1.0, 0.88))
+	_draw_rect_center(Vector2.ZERO, Vector2(7.0, 7.0), tower_color.darkened(0.18))
+	for marker in [Vector2(0.0, -25.0), Vector2(25.0, 0.0), Vector2(0.0, 25.0), Vector2(-25.0, 0.0)]:
+		_draw_rect_center(marker, Vector2(6.0, 10.0), Color(0.52, 1.0, 0.78, 0.82))
 
 
 func _draw_upgrade_details() -> void:
@@ -953,25 +956,89 @@ func _draw_upgrade_details() -> void:
 		draw_rect(Rect2(Vector2(-5.0, -36.0), Vector2(10.0, 8.0)), Color(0.42, 1.0, 0.62))
 
 	if level >= 2:
-		draw_rect(Rect2(Vector2(-26.0, -26.0), Vector2(52.0, 52.0)), tower_color.lightened(0.20), false, 2.0)
-		draw_rect(Rect2(Vector2(-27.0, -5.0), Vector2(6.0, 10.0)), tower_color.lightened(0.35))
-		draw_rect(Rect2(Vector2(21.0, -5.0), Vector2(6.0, 10.0)), tower_color.lightened(0.35))
+		draw_rect(Rect2(Vector2(-28.0, -28.0), Vector2(56.0, 56.0)), tower_color.lightened(0.20), false, 2.0)
+		draw_rect(Rect2(Vector2(-29.0, -5.0), Vector2(6.0, 10.0)), tower_color.lightened(0.35))
+		draw_rect(Rect2(Vector2(23.0, -5.0), Vector2(6.0, 10.0)), tower_color.lightened(0.35))
 
 	if level >= 3:
-		draw_rect(Rect2(Vector2(-30.0, -30.0), Vector2(60.0, 60.0)), Color(1.0, 0.92, 0.45), false, 2.0)
-		draw_rect(Rect2(Vector2(-4.0, -31.0), Vector2(8.0, 6.0)), Color(1.0, 0.92, 0.45))
-		draw_rect(Rect2(Vector2(-31.0, -4.0), Vector2(6.0, 8.0)), Color(1.0, 0.92, 0.45))
-		draw_rect(Rect2(Vector2(25.0, -4.0), Vector2(6.0, 8.0)), Color(1.0, 0.92, 0.45))
+		draw_rect(Rect2(Vector2(-32.0, -32.0), Vector2(64.0, 64.0)), Color(1.0, 0.92, 0.45), false, 2.0)
+		draw_rect(Rect2(Vector2(-4.0, -33.0), Vector2(8.0, 6.0)), Color(1.0, 0.92, 0.45))
+		draw_rect(Rect2(Vector2(-33.0, -4.0), Vector2(6.0, 8.0)), Color(1.0, 0.92, 0.45))
+		draw_rect(Rect2(Vector2(27.0, -4.0), Vector2(6.0, 8.0)), Color(1.0, 0.92, 0.45))
 
 
-func _draw_pixel_base(size: float, fill: Color) -> void:
-	draw_rect(Rect2(Vector2(-size, -size), Vector2(size * 2.0, size * 2.0)), Color(0.10, 0.15, 0.18))
-	draw_rect(Rect2(Vector2(-size + 5.0, -size + 5.0), Vector2(size * 2.0 - 10.0, size * 2.0 - 10.0)), fill)
-	draw_rect(Rect2(Vector2(-size + 8.0, -size + 8.0), Vector2(size * 2.0 - 16.0, 5.0)), fill.lightened(0.18))
+func _draw_64px_chassis(fill: Color, accent: Color, shadow: Color) -> void:
+	_draw_rect_center(Vector2(0.0, 10.0), Vector2(48.0, 18.0), Color(0.0, 0.0, 0.0, 0.18))
+	_draw_rect_center(Vector2.ZERO, Vector2(56.0, 48.0), shadow)
+	_draw_rect_center(Vector2.ZERO, Vector2(46.0, 38.0), fill.darkened(0.12))
+	_draw_rect_center(Vector2(0.0, -10.0), Vector2(38.0, 10.0), fill.lightened(0.24))
+	_draw_rect_center(Vector2(0.0, 12.0), Vector2(38.0, 8.0), fill.darkened(0.18))
+	_draw_rect_center(Vector2(-24.0, 0.0), Vector2(6.0, 24.0), accent.darkened(0.10))
+	_draw_rect_center(Vector2(24.0, 0.0), Vector2(6.0, 24.0), accent.darkened(0.10))
+	_draw_rect_center(Vector2.ZERO, Vector2(30.0, 26.0), fill)
+	_draw_corner_bolts(accent, 20.0, 4.0)
 
 
-func _draw_pixel_barrel(direction: Vector2, width: float, length: float, muzzle_size: float) -> void:
-	var start := (direction * -5.0).snapped(Vector2.ONE)
-	var end := (direction * length).snapped(Vector2.ONE)
-	draw_line(start, end, barrel_color, width, false)
-	draw_rect(Rect2(end - Vector2(muzzle_size * 0.5, muzzle_size * 0.5), Vector2(muzzle_size, muzzle_size)), barrel_color.lightened(0.10))
+func _draw_64px_heavy_chassis(fill: Color, accent: Color, shadow: Color) -> void:
+	var outline := PackedVector2Array([
+		Vector2(-22.0, -30.0), Vector2(22.0, -30.0), Vector2(30.0, -22.0), Vector2(30.0, 22.0),
+		Vector2(22.0, 30.0), Vector2(-22.0, 30.0), Vector2(-30.0, 22.0), Vector2(-30.0, -22.0),
+	])
+	draw_colored_polygon(outline, shadow)
+	var body := PackedVector2Array([
+		Vector2(-18.0, -24.0), Vector2(18.0, -24.0), Vector2(24.0, -18.0), Vector2(24.0, 18.0),
+		Vector2(18.0, 24.0), Vector2(-18.0, 24.0), Vector2(-24.0, 18.0), Vector2(-24.0, -18.0),
+	])
+	draw_colored_polygon(body, fill)
+	_draw_rect_center(Vector2(0.0, -12.0), Vector2(28.0, 8.0), fill.lightened(0.20))
+	_draw_rect_center(Vector2(0.0, 13.0), Vector2(30.0, 8.0), fill.darkened(0.18))
+	_draw_corner_bolts(accent, 22.0, 5.0)
+
+
+func _draw_64px_diamond_chassis(fill: Color, accent: Color, shadow: Color) -> void:
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(0.0, -31.0), Vector2(31.0, 0.0), Vector2(0.0, 31.0), Vector2(-31.0, 0.0),
+	]), shadow)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(0.0, -23.0), Vector2(23.0, 0.0), Vector2(0.0, 23.0), Vector2(-23.0, 0.0),
+	]), fill)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(0.0, -16.0), Vector2(16.0, 0.0), Vector2(0.0, 16.0), Vector2(-16.0, 0.0),
+	]), fill.lightened(0.12))
+	draw_line(Vector2(-17.0, 0.0), Vector2(17.0, 0.0), accent, 2.0, false)
+	draw_line(Vector2(0.0, -17.0), Vector2(0.0, 17.0), accent, 2.0, false)
+	_draw_corner_bolts(accent, 18.0, 3.5)
+
+
+func _draw_corner_bolts(color: Color, offset: float, size: float) -> void:
+	for marker in [Vector2(-offset, -offset), Vector2(offset, -offset), Vector2(-offset, offset), Vector2(offset, offset)]:
+		_draw_rect_center(marker, Vector2(size, size), color)
+
+
+func _draw_rect_center(center: Vector2, rect_size: Vector2, color: Color) -> void:
+	var top_left := (center - rect_size * 0.5).snapped(Vector2.ONE)
+	draw_rect(Rect2(top_left, rect_size.snapped(Vector2.ONE)), color)
+
+
+func _draw_directional_barrel(direction: Vector2, length: float, width: float, body_color: Color, muzzle_color: Color, muzzle_size: float) -> void:
+	_draw_directional_barrel_at(direction * (length * 0.5 - 3.0), direction, length, width, body_color, muzzle_color, muzzle_size)
+
+
+func _draw_directional_barrel_at(center: Vector2, direction: Vector2, length: float, width: float, body_color: Color, muzzle_color: Color, muzzle_size: float) -> void:
+	var safe_direction := direction.normalized()
+	if safe_direction == Vector2.ZERO:
+		safe_direction = Vector2.RIGHT
+	var side := safe_direction.orthogonal()
+	var half_length := length * 0.5
+	var half_width := width * 0.5
+	var start := center - safe_direction * half_length
+	var end := center + safe_direction * half_length
+	var points := PackedVector2Array([
+		(start - side * half_width).snapped(Vector2.ONE),
+		(end - side * half_width).snapped(Vector2.ONE),
+		(end + side * half_width).snapped(Vector2.ONE),
+		(start + side * half_width).snapped(Vector2.ONE),
+	])
+	draw_colored_polygon(points, body_color)
+	draw_line((start + side * (half_width - 1.0)).snapped(Vector2.ONE), (end + side * (half_width - 1.0)).snapped(Vector2.ONE), body_color.lightened(0.18), 1.0, false)
+	_draw_rect_center(end, Vector2(muzzle_size, muzzle_size), muzzle_color)
