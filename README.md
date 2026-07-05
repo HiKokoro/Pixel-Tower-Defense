@@ -89,6 +89,7 @@ Runtime-critical assets that are referenced by the project, such as `enemy1/`, a
 
 ```text
 project.godot
+CHANGELOG.md
 scenes/
   Main.tscn
 scripts/
@@ -212,6 +213,7 @@ Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/Cod
 
 ```text
 project.godot
+CHANGELOG.md
 scenes/
   Main.tscn
 scripts/
