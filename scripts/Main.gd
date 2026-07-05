@@ -9,6 +9,9 @@ const WorldOverlayRendererScene := preload("res://scripts/WorldOverlayRenderer.g
 const UpdateAnnouncementsData := preload("res://scripts/UpdateAnnouncements.gd")
 const MAP_HEIGHT: int = 640
 const GRID_SIZE: int = 64
+# 旧战斗数值按 32px 网格调参；读取范围类配置时统一乘 2，保证地图放大后覆盖格数不缩水。
+const LEGACY_GRID_SIZE: int = 32
+const WORLD_RANGE_SCALE: float = 2.0
 const ANNOUNCEMENT_STATE_PATH := "user://announcement_state.cfg"
 const LEVEL_START_SAVE_PATH := "user://level_start_save.cfg"
 const LEVEL_START_SAVE_SECTION := "level_start"
@@ -124,6 +127,11 @@ const CRYO_CARD_HIT_MESSAGE_TEMPLATE := "卡牌生效：冷冻地雷影响%d个�
 const FIRESTORM_CARD_DEFAULT_DAMAGE: int = 135
 const FIRESTORM_CARD_MAX_DAMAGE: int = 1200
 const FIRESTORM_CARD_DEFAULT_RADIUS: float = 360.0
+const FIRESTORM_CARD_DEFAULT_BURN_DAMAGE_PER_TICK: int = 6
+const FIRESTORM_CARD_MAX_BURN_DAMAGE_PER_TICK: int = 120
+const FIRESTORM_CARD_DEFAULT_BURN_TICK_INTERVAL: float = 0.5
+const FIRESTORM_CARD_DEFAULT_BURN_DURATION: float = 3.0
+const FIRESTORM_CARD_MAX_BURN_DURATION: float = 20.0
 const FIRESTORM_CARD_EMPTY_MESSAGE_TEXT := "全屏火焰没有可攻击的敌人。"
 const FIRESTORM_CARD_HIT_MESSAGE_TEMPLATE := "卡牌生效：全屏火焰灼烧%d个敌人。"
 const GLOBAL_FREEZE_CARD_DEFAULT_DAMAGE: int = 10
@@ -314,6 +322,8 @@ var build_manager: BuildManager
 var wave_manager: WaveManager
 var ui: GameUI
 var camera: Camera2D
+var build_sfx_player: AudioStreamPlayer
+var ui_click_sfx_player: AudioStreamPlayer
 
 var _enemy_cache: Array[Enemy] = []
 var _tower_cache: Array[Tower] = []
@@ -365,6 +375,7 @@ func _ready() -> void:
 	_init_configs()
 	_create_layers()
 	_create_camera()
+	_create_audio_players()
 	_create_managers()
 	_create_ui()
 	_load_level(0, false)
@@ -377,6 +388,7 @@ func _process(delta: float) -> void:
 		return
 
 	_update_camera_movement(delta)
+	_sync_ui_world_view_scale()
 
 	if _base_hit_flash > 0.0:
 		_base_hit_flash = maxf(_base_hit_flash - delta, 0.0)
@@ -494,6 +506,12 @@ func _queue_world_redraw() -> void:
 		world_decal_layer.queue_redraw()
 	if world_overlay_layer != null:
 		world_overlay_layer.queue_redraw()
+
+
+func destroy_map_decoration_at(cell: Vector2i) -> bool:
+	if map_layer == null or not map_layer.has_method("destroy_decoration_at"):
+		return false
+	return bool(map_layer.call("destroy_decoration_at", cell))
 
 
 func _show_world_area_effect(center: Vector2, radius: float, color: Color, accent_color: Color, duration: float = 0.45) -> void:
@@ -1465,6 +1483,21 @@ func world_to_screen(world_position: Vector2) -> Vector2:
 	return get_viewport().get_canvas_transform() * world_position
 
 
+func _sync_ui_world_view_scale() -> void:
+	if ui != null and camera != null:
+		ui.set_world_view_scale(camera.zoom.x)
+
+
+func _reset_camera_to_level_overview() -> void:
+	if camera == null:
+		return
+	# 切换/进入关卡时固定到全图最大视角，避免沿用上一局的缩放和偏移。
+	camera.zoom = Vector2.ONE * _get_min_camera_zoom()
+	camera.position = get_camera_bounds_center()
+	_clamp_camera_to_map()
+	_sync_ui_world_view_scale()
+
+
 func get_base_position() -> Vector2:
 	if not path_points.is_empty():
 		var base_position := path_points[path_points.size() - 1]
@@ -1505,6 +1538,7 @@ func _adjust_camera_zoom(direction: int, screen_focus: Vector2) -> void:
 	var world_after := screen_to_world(screen_focus)
 	camera.position += world_before - world_after
 	_clamp_camera_to_map()
+	_sync_ui_world_view_scale()
 
 
 func _get_min_camera_zoom() -> float:
@@ -1540,6 +1574,7 @@ func _clamp_camera_to_map() -> void:
 		camera.position.y = map_size.y * 0.5
 	else:
 		camera.position.y = clampf(camera.position.y, half_viewport.y, map_size.y - half_viewport.y)
+	_sync_ui_world_view_scale()
 
 
 func _create_layers() -> void:
@@ -1587,6 +1622,100 @@ func _create_camera() -> void:
 	add_child(camera)
 
 
+func _create_audio_players() -> void:
+	build_sfx_player = AudioStreamPlayer.new()
+	build_sfx_player.name = "BuildSfxPlayer"
+	build_sfx_player.bus = "Master"
+	build_sfx_player.volume_db = -7.0
+	build_sfx_player.stream = _create_build_place_sound_stream()
+	add_child(build_sfx_player)
+
+	ui_click_sfx_player = AudioStreamPlayer.new()
+	ui_click_sfx_player.name = "UiClickSfxPlayer"
+	ui_click_sfx_player.bus = "Master"
+	ui_click_sfx_player.volume_db = -16.0
+	ui_click_sfx_player.stream = _create_ui_click_sound_stream()
+	add_child(ui_click_sfx_player)
+
+
+func _create_build_place_sound_stream() -> AudioStreamWAV:
+	const SAMPLE_RATE := 44100
+	const DURATION := 0.32
+	var sample_count := int(SAMPLE_RATE * DURATION)
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+
+	for index in sample_count:
+		var time := float(index) / float(SAMPLE_RATE)
+		var normalized := time / DURATION
+		var sub_drop := sin(TAU * lerpf(58.0, 38.0, normalized) * time) * exp(-time * 9.5)
+		var low_body := sin(TAU * 86.0 * time) * exp(-time * 13.0)
+		var wood_knock := sin(TAU * 142.0 * time) * exp(-time * 30.0)
+		var metal_edge := (sin(TAU * 640.0 * time) + sin(TAU * 980.0 * time) * 0.32) * exp(-time * 96.0)
+		var latch_time := maxf(time - 0.055, 0.0)
+		var latch_envelope := sin(PI * clampf(latch_time / 0.18, 0.0, 1.0)) * exp(-latch_time * 7.5)
+		var latch := (sin(TAU * 52.0 * latch_time) * 0.90 + sin(TAU * 78.0 * latch_time) * 0.10) * latch_envelope
+		var fade_out := clampf((DURATION - time) / 0.045, 0.0, 1.0)
+		var sample := ((sub_drop * 0.62) + (low_body * 0.50) + (wood_knock * 0.22) + (metal_edge * 0.12) + (latch * 0.34)) * fade_out
+		sample = sample / (1.0 + absf(sample) * 0.42)
+		_write_pcm_16_sample(data, index, sample)
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = SAMPLE_RATE
+	stream.stereo = false
+	stream.data = data
+	return stream
+
+
+func _create_ui_click_sound_stream() -> AudioStreamWAV:
+	const SAMPLE_RATE := 44100
+	const DURATION := 0.075
+	var sample_count := int(SAMPLE_RATE * DURATION)
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+
+	for index in sample_count:
+		var time := float(index) / float(SAMPLE_RATE)
+		var tap := sin(TAU * 520.0 * time) * exp(-time * 82.0)
+		var bright_tick := sin(TAU * 1480.0 * time) * exp(-time * 130.0)
+		var confirm := sin(TAU * 760.0 * maxf(time - 0.012, 0.0)) * exp(-maxf(time - 0.012, 0.0) * 70.0)
+		var fade_out := clampf((DURATION - time) / 0.018, 0.0, 1.0)
+		var sample := ((tap * 0.44) + (bright_tick * 0.18) + (confirm * 0.22)) * fade_out
+		_write_pcm_16_sample(data, index, sample)
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = SAMPLE_RATE
+	stream.stereo = false
+	stream.data = data
+	return stream
+
+
+func _write_pcm_16_sample(data: PackedByteArray, sample_index: int, sample: float) -> void:
+	var encoded := int(round(clampf(sample, -1.0, 1.0) * 32767.0))
+	if encoded < 0:
+		encoded += 65536
+	data[sample_index * 2] = encoded & 0xff
+	data[sample_index * 2 + 1] = (encoded >> 8) & 0xff
+
+
+func play_build_place_sound() -> void:
+	if build_sfx_player == null or build_sfx_player.stream == null:
+		return
+
+	build_sfx_player.stop()
+	build_sfx_player.play()
+
+
+func play_ui_click_sound() -> void:
+	if ui_click_sfx_player == null or ui_click_sfx_player.stream == null:
+		return
+
+	ui_click_sfx_player.stop()
+	ui_click_sfx_player.play()
+
+
 func _create_managers() -> void:
 	build_manager = BuildManager.new()
 	build_manager.name = "BuildManager"
@@ -1617,6 +1746,7 @@ func _create_ui() -> void:
 	ui.tower_build_requested.connect(_on_tower_build_requested)
 	ui.next_level_pressed.connect(_on_next_level_pressed)
 	ui.upgrade_pressed.connect(_on_upgrade_pressed)
+	ui.basic_branch_upgrade_pressed.connect(_on_basic_branch_upgrade_pressed)
 	ui.sell_pressed.connect(_on_sell_pressed)
 	ui.tower_panel_close_pressed.connect(_on_tower_panel_close_pressed)
 	ui.game_start_pressed.connect(_on_game_start_pressed)
@@ -1635,9 +1765,28 @@ func _create_ui() -> void:
 	ui.pause_main_menu_pressed.connect(_request_return_to_start_screen_from_pause)
 	ui.end_restart_pressed.connect(_restart_current_level)
 	ui.end_main_menu_pressed.connect(_return_to_start_screen)
+	_bind_ui_button_sounds(ui)
 	ui.show_start_screen()
 	ui.set_continue_game_enabled(_has_level_start_save())
 	call_deferred("_show_latest_update_announcement_if_needed")
+
+
+func _bind_ui_button_sounds(root_node: Node) -> void:
+	if root_node == null:
+		return
+
+	var click_callable := Callable(self, "_on_ui_button_pressed_for_sound")
+	if root_node is BaseButton:
+		var button := root_node as BaseButton
+		if not button.pressed.is_connected(click_callable):
+			button.pressed.connect(click_callable)
+
+	for child in root_node.get_children():
+		_bind_ui_button_sounds(child)
+
+
+func _on_ui_button_pressed_for_sound() -> void:
+	play_ui_click_sound()
 
 
 func _show_latest_update_announcement_if_needed() -> void:
@@ -1866,6 +2015,13 @@ func _on_upgrade_pressed() -> void:
 	_refresh_ui()
 
 
+func _on_basic_branch_upgrade_pressed(branch_id: String) -> void:
+	if is_game_paused:
+		return
+	build_manager.upgrade_selected(branch_id)
+	_refresh_ui()
+
+
 func _on_sell_pressed() -> void:
 	if is_game_paused:
 		return
@@ -2028,7 +2184,7 @@ func _on_enemy_reached_end(enemy: Enemy) -> void:
 
 
 func _trigger_elite_death_blast(world_position: Vector2) -> void:
-	var stun_radius := 108.0
+	var stun_radius := _scale_world_range(108.0)
 	var stun_radius_sq := stun_radius * stun_radius
 	var stunned := 0
 	for tower in _collect_valid_active_towers():
@@ -2206,9 +2362,12 @@ func _get_reward_card_pool() -> Array[Dictionary]:
 			"name": "全屏火焰",
 			"type_label": "攻击",
 			"rarity": CARD_RARITY_GOLD,
-			"description": "拖出后显示打击范围；释放时灼烧全屏敌人，造成135点伤害。",
+			"description": "拖出后显示打击范围；释放时灼烧全屏敌人，造成135点伤害并附加持续烧伤。",
 			"damage": FIRESTORM_CARD_DEFAULT_DAMAGE,
 			"radius": FIRESTORM_CARD_DEFAULT_RADIUS,
+			"burn_damage_per_tick": FIRESTORM_CARD_DEFAULT_BURN_DAMAGE_PER_TICK,
+			"burn_tick_interval": FIRESTORM_CARD_DEFAULT_BURN_TICK_INTERVAL,
+			"burn_duration": FIRESTORM_CARD_DEFAULT_BURN_DURATION,
 			"sell_value": 36,
 		},
 		{
@@ -2750,7 +2909,10 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			return _finish_area_reward_card_success(card_id, drop_position, normalized_card, center, radius, Color(0.46, 0.86, 1.0), Color(0.84, 1.0, 1.0), radius, 56, "CryoCardParticles", _format_cryo_card_hit_message_text(hit_count))
 		"firestorm":
 			var damage_amount := _get_firestorm_card_damage(normalized_card)
-			var hit_count := _damage_all_enemies(damage_amount)
+			var burn_damage_per_tick := _get_firestorm_card_burn_damage_per_tick(normalized_card)
+			var burn_tick_interval := _get_firestorm_card_burn_tick_interval(normalized_card)
+			var burn_duration := _get_firestorm_card_burn_duration(normalized_card)
+			var hit_count := _damage_and_burn_all_enemies(damage_amount, burn_damage_per_tick, burn_tick_interval, burn_duration)
 			if hit_count <= 0:
 				_message = _get_firestorm_card_empty_message_text()
 				return false
@@ -3066,7 +3228,7 @@ func _get_reward_card_rarity_color(rarity: String) -> Color:
 func _get_reward_card_release_radius(card_id: String, card: Dictionary) -> float:
 	match card_id:
 		"firestorm", "global_freeze":
-			return minf(get_map_max_dimension() * 0.34, 260.0)
+			return minf(get_map_max_dimension() * 0.34, _scale_world_range(260.0))
 		"missile", "cryo", "bait_beacon", "time_warp", "bounty_mark":
 			if card_id == "bait_beacon":
 				return _get_bait_beacon_card_radius(card)
@@ -3084,9 +3246,13 @@ func _get_reward_card_release_radius(card_id: String, card: Dictionary) -> float
 		"road_spikes":
 			return maxf(_get_road_spike_card_radius(card), 58.0)
 		"overload_debt", "panic_button":
-			return 120.0
+			return _scale_world_range(120.0)
 		_:
-			return 78.0
+			return _scale_world_range(78.0)
+
+
+func _scale_world_range(raw_range: float) -> float:
+	return raw_range * WORLD_RANGE_SCALE
 
 
 func _get_reward_card_release_particle_config(color: Color, radius: float, profile: String, direction: Vector2) -> Dictionary:
@@ -3234,6 +3400,15 @@ func _damage_all_enemies(damage_amount: int) -> int:
 	return targets.size()
 
 
+func _damage_and_burn_all_enemies(damage_amount: int, burn_damage_per_tick: int, burn_tick_interval: float, burn_duration: float) -> int:
+	var targets := _collect_valid_active_enemies()
+	for enemy in targets:
+		enemy.take_damage(damage_amount)
+		if is_instance_valid(enemy):
+			enemy.apply_burn(burn_damage_per_tick, burn_tick_interval, burn_duration)
+	return targets.size()
+
+
 func _damage_and_slow_all_enemies(damage_amount: int, slow_multiplier: float, duration: float) -> int:
 	var targets := _collect_valid_active_enemies()
 	for enemy in targets:
@@ -3328,11 +3503,16 @@ func _get_road_spike_trap_position(trap: Dictionary) -> Vector2:
 
 
 func _get_road_spike_card_radius(card: Dictionary) -> float:
-	return _sanitize_road_spike_radius(card.get("radius", ROAD_SPIKE_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_road_spike_radius(card.get("radius", ROAD_SPIKE_DEFAULT_RADIUS)))
 
 
 func _get_road_spike_trap_radius(trap: Dictionary) -> float:
-	return _sanitize_road_spike_radius(trap.get("radius", ROAD_SPIKE_DEFAULT_RADIUS))
+	var raw_radius: Variant = trap.get("radius", _scale_world_range(ROAD_SPIKE_DEFAULT_RADIUS))
+	if raw_radius is int or raw_radius is float:
+		var radius := float(raw_radius)
+		if radius > 0.0:
+			return radius
+	return _scale_world_range(ROAD_SPIKE_DEFAULT_RADIUS)
 
 
 func _get_road_spike_card_damage(card: Dictionary) -> int:
@@ -3432,7 +3612,7 @@ func _sanitize_coin_magnet_bonus_ratio(raw_ratio: Variant) -> float:
 
 
 func _get_bait_beacon_card_radius(card: Dictionary) -> float:
-	return _sanitize_bait_beacon_radius(card.get("radius", BAIT_BEACON_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_bait_beacon_radius(card.get("radius", BAIT_BEACON_DEFAULT_RADIUS)))
 
 
 func _get_bait_beacon_card_duration(card: Dictionary) -> float:
@@ -3468,7 +3648,7 @@ func _sanitize_bait_beacon_strength(raw_strength: Variant) -> float:
 
 
 func _get_time_warp_card_radius(card: Dictionary) -> float:
-	return _sanitize_time_warp_radius(card.get("radius", TIME_WARP_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_time_warp_radius(card.get("radius", TIME_WARP_DEFAULT_RADIUS)))
 
 
 func _get_time_warp_card_slow_multiplier(card: Dictionary) -> float:
@@ -3516,7 +3696,7 @@ func _sanitize_time_warp_duration(raw_duration: Variant) -> float:
 
 
 func _get_tower_swap_card_radius(card: Dictionary) -> float:
-	return _sanitize_tower_swap_radius(card.get("radius", TOWER_SWAP_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_tower_swap_radius(card.get("radius", TOWER_SWAP_DEFAULT_RADIUS)))
 
 
 func _get_tower_swap_card_duration(card: Dictionary) -> float:
@@ -3612,7 +3792,7 @@ func _get_panic_button_card_panic_heal(card: Dictionary) -> int:
 
 
 func _get_bounty_mark_card_radius(card: Dictionary) -> float:
-	return _sanitize_bounty_mark_radius(card.get("radius", BOUNTY_MARK_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_bounty_mark_radius(card.get("radius", BOUNTY_MARK_DEFAULT_RADIUS)))
 
 
 func _get_bounty_mark_card_bonus_gold(card: Dictionary) -> int:
@@ -3660,7 +3840,7 @@ func _get_missile_card_damage(card: Dictionary) -> int:
 
 
 func _get_missile_card_radius(card: Dictionary) -> float:
-	return _sanitize_missile_radius(card.get("radius", MISSILE_CARD_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_missile_radius(card.get("radius", MISSILE_CARD_DEFAULT_RADIUS)))
 
 
 func _get_cryo_card_damage(card: Dictionary) -> int:
@@ -3668,7 +3848,7 @@ func _get_cryo_card_damage(card: Dictionary) -> int:
 
 
 func _get_cryo_card_radius(card: Dictionary) -> float:
-	return _sanitize_cryo_radius(card.get("radius", CRYO_CARD_DEFAULT_RADIUS))
+	return _scale_world_range(_sanitize_cryo_radius(card.get("radius", CRYO_CARD_DEFAULT_RADIUS)))
 
 
 func _get_cryo_card_slow_multiplier(card: Dictionary) -> float:
@@ -3681,6 +3861,18 @@ func _get_cryo_card_duration(card: Dictionary) -> float:
 
 func _get_firestorm_card_damage(card: Dictionary) -> int:
 	return _sanitize_firestorm_damage(card.get("damage", FIRESTORM_CARD_DEFAULT_DAMAGE))
+
+
+func _get_firestorm_card_burn_damage_per_tick(card: Dictionary) -> int:
+	return _sanitize_firestorm_burn_damage_per_tick(card.get("burn_damage_per_tick", FIRESTORM_CARD_DEFAULT_BURN_DAMAGE_PER_TICK))
+
+
+func _get_firestorm_card_burn_tick_interval(card: Dictionary) -> float:
+	return _sanitize_firestorm_burn_tick_interval(card.get("burn_tick_interval", FIRESTORM_CARD_DEFAULT_BURN_TICK_INTERVAL))
+
+
+func _get_firestorm_card_burn_duration(card: Dictionary) -> float:
+	return _sanitize_firestorm_burn_duration(card.get("burn_duration", FIRESTORM_CARD_DEFAULT_BURN_DURATION))
 
 
 func _get_global_freeze_card_damage(card: Dictionary) -> int:
@@ -3845,6 +4037,30 @@ func _sanitize_firestorm_damage(raw_damage: Variant) -> int:
 		if damage_amount > 0 and damage_amount <= FIRESTORM_CARD_MAX_DAMAGE:
 			return damage_amount
 	return FIRESTORM_CARD_DEFAULT_DAMAGE
+
+
+func _sanitize_firestorm_burn_damage_per_tick(raw_damage: Variant) -> int:
+	if raw_damage is int or raw_damage is float:
+		var damage_amount := int(round(float(raw_damage)))
+		if damage_amount > 0 and damage_amount <= FIRESTORM_CARD_MAX_BURN_DAMAGE_PER_TICK:
+			return damage_amount
+	return FIRESTORM_CARD_DEFAULT_BURN_DAMAGE_PER_TICK
+
+
+func _sanitize_firestorm_burn_tick_interval(raw_interval: Variant) -> float:
+	if raw_interval is int or raw_interval is float:
+		var interval := float(raw_interval)
+		if interval > 0.0:
+			return maxf(interval, 0.05)
+	return FIRESTORM_CARD_DEFAULT_BURN_TICK_INTERVAL
+
+
+func _sanitize_firestorm_burn_duration(raw_duration: Variant) -> float:
+	if raw_duration is int or raw_duration is float:
+		var duration := float(raw_duration)
+		if duration > 0.0 and duration <= FIRESTORM_CARD_MAX_BURN_DURATION:
+			return duration
+	return FIRESTORM_CARD_DEFAULT_BURN_DURATION
 
 
 func _sanitize_global_freeze_damage(raw_damage: Variant) -> int:
@@ -4123,9 +4339,7 @@ func _load_level(level_index: int, keep_resources: bool) -> void:
 	if map_layer != null:
 		map_layer.redraw_map()
 	_queue_world_redraw()
-	if camera != null:
-		camera.position = Vector2(float(get_map_pixel_width()) * 0.5, float(MAP_HEIGHT) * 0.5)
-		_clamp_camera_to_map()
+	_reset_camera_to_level_overview()
 
 
 func _init_configs() -> void:
@@ -4460,6 +4674,7 @@ func _calculate_path_length(points: Array) -> float:
 
 
 func _build_path_from_route(route: Array) -> Array[Vector2]:
+	# 怪物寻路只沿关卡配置的 route 折线展开；不要从相邻 road_cells 反推路径，否则会把并行道路误连。
 	var cells: Array[Vector2i] = []
 	for index in range(route.size() - 1):
 		var a: Vector2i = route[index]
@@ -4475,40 +4690,6 @@ func _build_path_from_route(route: Array) -> Array[Vector2]:
 			elif current.y != b.y:
 				current.y += y_step
 			cells.append(current)
-
-	var points: Array[Vector2] = []
-	for cell in cells:
-		points.append(_grid_to_center(cell))
-	return points
-
-
-func _find_path_on_road_grid(start: Vector2i, goal: Vector2i) -> Array[Vector2]:
-	var frontier: Array[Vector2i] = [start]
-	var came_from: Dictionary = {_grid_key(start): start}
-	var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
-	var head := 0
-
-	while head < frontier.size():
-		var current := frontier[head]
-		head += 1
-		if current == goal:
-			break
-
-		for direction in dirs:
-			var next := current + direction
-			var key := _grid_key(next)
-			if road_cells.has(key) and not came_from.has(key):
-				frontier.append(next)
-				came_from[key] = current
-
-	var cells: Array[Vector2i] = []
-	var cursor := goal
-	if not came_from.has(_grid_key(goal)):
-		cursor = start
-	cells.append(cursor)
-	while cursor != start:
-		cursor = came_from[_grid_key(cursor)]
-		cells.push_front(cursor)
 
 	var points: Array[Vector2] = []
 	for cell in cells:
@@ -4585,8 +4766,16 @@ func _spawn_enemy(type_id: String, enemy_health: int, enemy_speed: float, reward
 
 func _get_spawn_path(route_index: int) -> Array[Vector2]:
 	if spawn_paths.is_empty():
-		return path_points
-	return spawn_paths[clampi(route_index, 0, spawn_paths.size() - 1)] as Array[Vector2]
+		return _copy_spawn_path_points(path_points)
+	return _copy_spawn_path_points(spawn_paths[clampi(route_index, 0, spawn_paths.size() - 1)])
+
+
+func _copy_spawn_path_points(source_points: Array) -> Array[Vector2]:
+	var path_snapshot: Array[Vector2] = []
+	for point in source_points:
+		if point is Vector2:
+			path_snapshot.append(point)
+	return path_snapshot
 
 
 func _get_spawn_path_length(route_index: int) -> float:

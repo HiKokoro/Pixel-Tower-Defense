@@ -18,6 +18,8 @@ const NO_TOWER_SELECTED_MESSAGE_TEXT := "请先选择一座防御塔。"
 const TOWER_MAX_LEVEL_MESSAGE_TEXT := "防御塔已达到最高等级。"
 const UPGRADE_INSUFFICIENT_GOLD_MESSAGE_TEXT := "金币不足，无法升级。"
 const TOWER_UPGRADED_MESSAGE_TEXT := "防御塔已升级。"
+const BASIC_FIRE_UPGRADED_MESSAGE_TEXT := "基础塔已升级为火塔。"
+const BASIC_ICE_UPGRADED_MESSAGE_TEXT := "基础塔已升级为冰塔。"
 const TOWER_SOLD_MESSAGE_TEXT := "防御塔已出售。"
 const BUILD_INSUFFICIENT_GOLD_ERROR_TEXT := "金币不足。"
 const BUILD_OUTSIDE_MAP_ERROR_TEXT := "请在地图内建造。"
@@ -135,8 +137,10 @@ func try_build_at(world_position: Vector2) -> bool:
 	tower_layer.add_child(tower)
 	game.register_tower(tower)
 	_occupied_tiles[grid_position] = tower
+	game.destroy_map_decoration_at(grid_position)
 
 	game.spend_gold(_selected_tower_cost)
+	game.play_build_place_sound()
 	game.spawn_particle_burst(tower.global_position, {
 		"name": "BuildParticles",
 		"amount": 28,
@@ -192,12 +196,15 @@ func clear_selection() -> void:
 		game.show_selected_tower(null)
 
 
-func upgrade_selected() -> void:
+func upgrade_selected(branch_id: String = "") -> void:
 	if not is_instance_valid(selected_tower):
 		game.set_message(_get_no_tower_selected_message_text())
 		return
 
 	if not selected_tower.can_upgrade():
+		game.set_message(_get_tower_max_level_message_text())
+		return
+	if not selected_tower.is_upgrade_choice_valid(branch_id):
 		game.set_message(_get_tower_max_level_message_text())
 		return
 
@@ -207,7 +214,10 @@ func upgrade_selected() -> void:
 		return
 
 	game.spend_gold(cost)
-	selected_tower.upgrade()
+	if not selected_tower.upgrade(branch_id):
+		game.add_gold(cost)
+		game.set_message(_get_tower_max_level_message_text())
+		return
 	game.spawn_particle_burst(selected_tower.global_position, {
 		"name": "UpgradeParticles",
 		"amount": 42,
@@ -223,7 +233,7 @@ func upgrade_selected() -> void:
 		"color": Color(1.0, 0.86, 0.30),
 		"important": true,
 	})
-	game.set_message(_get_tower_upgraded_message_text())
+	game.set_message(_get_tower_upgraded_message_text(selected_tower.basic_branch))
 	game.show_selected_tower(selected_tower)
 
 
@@ -307,7 +317,8 @@ func _get_selected_tower_cost(config: Dictionary) -> int:
 
 
 func _get_selected_tower_range(config: Dictionary) -> float:
-	return _get_non_negative_float_config(config, "range", Tower.BASE_RANGE, CONFIG_MAX_TOWER_RANGE)
+	var raw_range := _get_non_negative_float_config(config, "range", Tower.LEGACY_BASE_RANGE, CONFIG_MAX_TOWER_RANGE)
+	return Tower.scale_world_range(raw_range)
 
 
 func _get_selected_tower_category(config: Dictionary) -> String:
@@ -376,7 +387,12 @@ func _get_upgrade_insufficient_gold_message_text() -> String:
 	return UPGRADE_INSUFFICIENT_GOLD_MESSAGE_TEXT
 
 
-func _get_tower_upgraded_message_text() -> String:
+func _get_tower_upgraded_message_text(branch_id: String = "") -> String:
+	match branch_id:
+		Tower.BASIC_FIRE_BRANCH_ID:
+			return BASIC_FIRE_UPGRADED_MESSAGE_TEXT
+		Tower.BASIC_ICE_BRANCH_ID:
+			return BASIC_ICE_UPGRADED_MESSAGE_TEXT
 	return TOWER_UPGRADED_MESSAGE_TEXT
 
 

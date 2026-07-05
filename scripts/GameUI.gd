@@ -41,12 +41,21 @@ const CARD_RARITY_RED_COLOR := Color(1.0, 0.34, 0.24)
 const CARD_FACE_MAX_BORDER_WIDTH: int = 8
 const CARD_FACE_MAX_COUNT: int = 12
 const CARD_FACE_MAX_SIZE: float = 32.0
+# 旧版卡牌范围按 32px 网格填写；当前关卡格子是 64px，展示半径必须同步放大到同等覆盖格数。
+const LEGACY_GRID_SIZE: float = 32.0
+const CURRENT_GRID_SIZE: float = 64.0
+const WORLD_RANGE_SCALE: float = CURRENT_GRID_SIZE / LEGACY_GRID_SIZE
 const CARD_AREA_PREVIEW_DEFAULT_RADIUS: float = 92.0
 const CARD_AREA_PREVIEW_MAX_RADIUS: float = 640.0
 const GOLD_STATUS_TEMPLATE := "金币：%d"
 const BASE_HEALTH_STATUS_TEMPLATE := "基地：%d/%d"
 const LEVEL_STATUS_TEMPLATE := "关卡：%d/%d"
 const WAVE_STATUS_TEMPLATE := "波次：%d/%d"
+# 中下方状态提示只做轻量浮字：不再恢复大块背景，也不再走旧 UI 粒子。
+const STATUS_MESSAGE_POSITION := Vector2(300.0, 410.0)
+const STATUS_MESSAGE_SIZE := Vector2(360.0, 30.0)
+const STATUS_MESSAGE_HOLD_TIME: float = 1.25
+const STATUS_MESSAGE_FADE_TIME: float = 2.10
 const START_WAVE_BUTTON_TEXT := "开始波次"
 const NEXT_LEVEL_BUTTON_TEXT := "下一关"
 const TOWER_PANEL_CLOSE_BUTTON_TEXT := "关闭"
@@ -107,6 +116,8 @@ const CONSOLE_COMPLETION_OPTIONS_TEMPLATE := "可选补全：%s"
 const TOWER_PANEL_INFO_TEMPLATE := "%s  等级 %d\n伤害 %d   射程 %d\n间隔 %.2f秒"
 const TOWER_PANEL_TRAIT_APPEND_TEMPLATE := "%s\n%s\n%s"
 const TOWER_UPGRADE_BUTTON_TEMPLATE := "升级（%d金币）"
+const TOWER_FIRE_UPGRADE_BUTTON_TEMPLATE := "火塔（%d金币）"
+const TOWER_ICE_UPGRADE_BUTTON_TEMPLATE := "冰塔（%d金币）"
 const TOWER_MAX_LEVEL_BUTTON_TEXT := "已满级"
 const TOWER_SELL_BUTTON_TEMPLATE := "出售（%d金币）"
 const LEVEL_INTRO_TITLE_TEMPLATE := "第%02d关 / 共%02d关"
@@ -147,6 +158,7 @@ signal start_wave_pressed
 signal tower_build_requested(type_id: String)
 signal next_level_pressed
 signal upgrade_pressed
+signal basic_branch_upgrade_pressed(branch_id: String)
 signal sell_pressed
 signal tower_panel_close_pressed
 signal game_start_pressed
@@ -182,6 +194,8 @@ var compact_build_options_container: HBoxContainer
 var tower_panel: Panel
 var tower_info_label: Label
 var upgrade_button: Button
+var fire_upgrade_button: Button
+var ice_upgrade_button: Button
 var sell_button: Button
 var tower_panel_close_button: Button
 var start_overlay: Panel
@@ -266,6 +280,8 @@ var _pause_overlay_tween: Tween
 var _console_panel_tween: Tween
 var _level_banner_tween: Tween
 var _level_clear_tween: Tween
+var _status_message_elapsed: float = 0.0
+var _status_message_fade_active: bool = false
 var _build_option_buttons: Array[Button] = []
 var _compact_build_option_buttons: Array[Button] = []
 var _level_buttons: Array[Button] = []
@@ -287,6 +303,7 @@ var _drag_card_control: Control
 var _drag_offset: Vector2 = Vector2.ZERO
 var _drag_start_position: Vector2 = Vector2.ZERO
 var _drag_start_rotation: float = 0.0
+var _card_area_preview_world_to_screen_scale: float = 1.0
 var _last_gold: int = -999999
 var _last_base_health: int = -999999
 var _last_max_base_health: int = -999999
@@ -303,23 +320,11 @@ var _tower_panel_cache_id: int = -1
 var _tower_panel_cache_info: String = ""
 var _tower_panel_cache_upgrade_text: String = ""
 var _tower_panel_cache_upgrade_disabled: bool = false
+var _tower_panel_cache_branch_mode: bool = false
+var _tower_panel_cache_fire_text: String = ""
+var _tower_panel_cache_ice_text: String = ""
 var _tower_panel_cache_sell_text: String = ""
 var _status_text_write_count: int = 0
-var _ui_particle_config: Dictionary = {
-	"name": "UIParticles",
-	"amount": 18,
-	"lifetime": 0.72,
-	"emission_radius": 12.0,
-	"velocity_min": 8.0,
-	"velocity_max": 40.0,
-	"scale_min": 1.0,
-	"scale_max": 3.2,
-	"gravity": Vector2(0.0, 140.0),
-	"spread": 180.0,
-	"color": ACCENT,
-	"z_index": 120,
-	"process_mode": Node.PROCESS_MODE_ALWAYS,
-}
 
 const HUD_BG := Color(0.030, 0.040, 0.046, 0.92)
 const HUD_BG_DARK := Color(0.015, 0.020, 0.026, 0.95)
@@ -334,6 +339,11 @@ const CARD_SIZE := Vector2(104.0, 148.0)
 const CARD_HAND_CENTER := Vector2(775.0, 488.0)
 const CARD_HAND_ZONE := Rect2(Vector2(592.0, 388.0), Vector2(354.0, 146.0))
 const CARD_SELL_ZONE := Rect2(Vector2(868.0, 348.0), Vector2(58.0, 48.0))
+const HUD_TOP_BAR_TEXTURE_PATH := "res://assets/ui/hud_top_bar.png"
+const HUD_STATUS_GOLD_TEXTURE_PATH := "res://assets/ui/status_gold.png"
+const HUD_STATUS_HEALTH_TEXTURE_PATH := "res://assets/ui/status_health.png"
+const HUD_STATUS_LEVEL_TEXTURE_PATH := "res://assets/ui/status_level.png"
+const HUD_STATUS_WAVE_TEXTURE_PATH := "res://assets/ui/status_wave.png"
 
 
 class AreaCardPreview:
@@ -478,23 +488,29 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var top_bar := Panel.new()
-	top_bar.position = Vector2(12.0, 8.0)
-	top_bar.size = Vector2(936.0, 48.0)
-	top_bar.mouse_filter = Control.MOUSE_FILTER_STOP
-	top_bar.add_theme_stylebox_override("panel", _panel_style(HUD_BG, HUD_BORDER, 0))
+	var top_bar := _make_texture_panel(
+		"HudTopBarTexture",
+		_load_ui_texture(HUD_TOP_BAR_TEXTURE_PATH),
+		Vector2(12.0, 8.0),
+		Vector2(936.0, 48.0),
+		Control.MOUSE_FILTER_STOP
+	)
 	root.add_child(top_bar)
 
-	gold_label = _make_label(Vector2(26.0, 14.0), Vector2(112.0, 28.0), WARNING)
+	root.add_child(_make_texture_panel("HudGoldStatusTexture", _load_ui_texture(HUD_STATUS_GOLD_TEXTURE_PATH), Vector2(20.0, 12.0), Vector2(118.0, 32.0)))
+	gold_label = _make_label(Vector2(30.0, 14.0), Vector2(100.0, 28.0), WARNING)
 	root.add_child(gold_label)
 
-	base_health_label = _make_label(Vector2(148.0, 14.0), Vector2(146.0, 28.0), Color(0.96, 0.42, 0.36))
+	root.add_child(_make_texture_panel("HudHealthStatusTexture", _load_ui_texture(HUD_STATUS_HEALTH_TEXTURE_PATH), Vector2(146.0, 12.0), Vector2(152.0, 32.0)))
+	base_health_label = _make_label(Vector2(156.0, 14.0), Vector2(134.0, 28.0), Color(0.96, 0.42, 0.36))
 	root.add_child(base_health_label)
 
-	level_label = _make_label(Vector2(304.0, 14.0), Vector2(104.0, 28.0), ACCENT)
+	root.add_child(_make_texture_panel("HudLevelStatusTexture", _load_ui_texture(HUD_STATUS_LEVEL_TEXTURE_PATH), Vector2(302.0, 12.0), Vector2(108.0, 32.0)))
+	level_label = _make_label(Vector2(312.0, 14.0), Vector2(90.0, 28.0), ACCENT)
 	root.add_child(level_label)
 
-	wave_label = _make_label(Vector2(418.0, 14.0), Vector2(112.0, 28.0), Color(0.70, 0.80, 1.0))
+	root.add_child(_make_texture_panel("HudWaveStatusTexture", _load_ui_texture(HUD_STATUS_WAVE_TEXTURE_PATH), Vector2(416.0, 12.0), Vector2(118.0, 32.0)))
+	wave_label = _make_label(Vector2(426.0, 14.0), Vector2(100.0, 28.0), Color(0.70, 0.80, 1.0))
 	root.add_child(wave_label)
 
 	start_wave_button = _make_button(_get_start_wave_button_text(), Vector2(548.0, 14.0), Vector2(118.0, 36.0), ACCENT)
@@ -507,15 +523,24 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	_set_button_enabled(next_level_button, false)
 	root.add_child(next_level_button)
 
-	message_label = _make_label(Vector2(798.0, 10.0), Vector2(136.0, 44.0), TEXT_MUTED)
+	message_label = _make_label(STATUS_MESSAGE_POSITION, STATUS_MESSAGE_SIZE, TEXT_MAIN)
+	message_label.name = "CenterStatusMessage"
+	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	message_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	message_label.modulate.a = 0.0
+	message_label.visible = false
+	message_label.add_theme_font_size_override("font_size", 15)
+	message_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.72))
+	message_label.add_theme_constant_override("shadow_offset_x", 2)
+	message_label.add_theme_constant_override("shadow_offset_y", 2)
 	root.add_child(message_label)
 
 	_create_build_panel(root, tower_configs)
 
 	tower_panel = Panel.new()
 	tower_panel.position = TOWER_PANEL_CLOSED_POSITION
-	tower_panel.size = Vector2(250.0, 196.0)
+	tower_panel.size = Vector2(250.0, 236.0)
 	tower_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	tower_panel.visible = false
 	tower_panel.modulate.a = 0.0
@@ -533,6 +558,16 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	upgrade_button = _make_button(_get_tower_upgrade_placeholder_text(), Vector2(14.0, 136.0), Vector2(106.0, 42.0), ACCENT)
 	upgrade_button.pressed.connect(_on_upgrade_pressed)
 	tower_panel.add_child(upgrade_button)
+
+	fire_upgrade_button = _make_button("", Vector2(14.0, 132.0), Vector2(106.0, 36.0), Color(1.0, 0.46, 0.18))
+	fire_upgrade_button.pressed.connect(_on_basic_branch_upgrade_pressed.bind(Tower.BASIC_FIRE_BRANCH_ID))
+	fire_upgrade_button.visible = false
+	tower_panel.add_child(fire_upgrade_button)
+
+	ice_upgrade_button = _make_button("", Vector2(130.0, 132.0), Vector2(106.0, 36.0), Color(0.42, 0.80, 1.0))
+	ice_upgrade_button.pressed.connect(_on_basic_branch_upgrade_pressed.bind(Tower.BASIC_ICE_BRANCH_ID))
+	ice_upgrade_button.visible = false
+	tower_panel.add_child(ice_upgrade_button)
 
 	sell_button = _make_button(_get_tower_sell_placeholder_text(), Vector2(130.0, 136.0), Vector2(106.0, 42.0), DANGER)
 	sell_button.pressed.connect(_on_sell_pressed)
@@ -615,6 +650,8 @@ func _process(delta: float) -> void:
 	if _drag_card_control != null:
 		_update_dragged_card_position(get_viewport().get_mouse_position())
 
+	_update_status_message_fade(delta)
+
 	if not _end_animation_active:
 		return
 
@@ -666,7 +703,7 @@ func update_status(gold: int, base_health: int, max_base_health: int, level: int
 		_set_status_label_text(wave_label, _format_wave_status_text(wave, total_waves))
 	if message_changed:
 		_last_message = message
-		_set_status_label_text(message_label, message)
+		_show_status_message(message)
 
 
 func _format_gold_status_text(gold: int) -> String:
@@ -1007,8 +1044,20 @@ func _get_tower_upgrade_button_text(tower: Tower) -> String:
 	return TOWER_MAX_LEVEL_BUTTON_TEXT
 
 
+func _get_tower_fire_upgrade_button_text(tower: Tower) -> String:
+	return TOWER_FIRE_UPGRADE_BUTTON_TEMPLATE % tower.get_upgrade_cost()
+
+
+func _get_tower_ice_upgrade_button_text(tower: Tower) -> String:
+	return TOWER_ICE_UPGRADE_BUTTON_TEMPLATE % tower.get_upgrade_cost()
+
+
 func _is_tower_upgrade_button_disabled(tower: Tower) -> bool:
 	return not tower.can_upgrade()
+
+
+func _uses_basic_branch_upgrade_buttons(tower: Tower) -> bool:
+	return tower.can_choose_basic_branch()
 
 
 func _format_tower_sell_button_text(tower: Tower) -> String:
@@ -1070,6 +1119,48 @@ func _set_status_label_text(label: Label, text: String) -> void:
 	_status_text_write_count += 1
 
 
+func _show_status_message(message: String) -> void:
+	if message_label == null:
+		return
+	_set_status_label_text(message_label, message)
+
+	if message.strip_edges().is_empty():
+		_status_message_fade_active = false
+		_status_message_elapsed = 0.0
+		message_label.modulate.a = 0.0
+		message_label.visible = false
+		return
+
+	message_label.position = STATUS_MESSAGE_POSITION
+	message_label.size = STATUS_MESSAGE_SIZE
+	message_label.visible = true
+	message_label.modulate.a = 1.0
+	_status_message_elapsed = 0.0
+	_status_message_fade_active = true
+
+
+func _update_status_message_fade(delta: float) -> void:
+	if not _status_message_fade_active or message_label == null:
+		return
+
+	# 手动累计时间而不是每次创建 Tween，避免高频状态刷新时旧 tween 抢写 alpha。
+	_status_message_elapsed += maxf(delta, 0.0)
+	var fade_start := STATUS_MESSAGE_HOLD_TIME
+	var fade_end := STATUS_MESSAGE_HOLD_TIME + STATUS_MESSAGE_FADE_TIME
+	if _status_message_elapsed <= fade_start:
+		message_label.modulate.a = 1.0
+		return
+
+	var fade_progress := clampf((_status_message_elapsed - fade_start) / STATUS_MESSAGE_FADE_TIME, 0.0, 1.0)
+	var eased := fade_progress * fade_progress * (3.0 - 2.0 * fade_progress)
+	message_label.modulate.a = 1.0 - eased
+
+	if _status_message_elapsed >= fade_end:
+		_status_message_fade_active = false
+		message_label.modulate.a = 0.0
+		message_label.visible = false
+
+
 func _set_button_enabled(button: Button, enabled: bool) -> void:
 	if button == null or not is_instance_valid(button):
 		return
@@ -1128,6 +1219,13 @@ func set_highest_unlocked_level(level_index: int) -> void:
 		button.text = base_text if unlocked else _format_locked_level_button_text(base_text)
 		button.tooltip_text = "" if unlocked else _get_locked_level_tooltip_text()
 		button.modulate = Color.WHITE if unlocked else Color(0.62, 0.68, 0.66, 0.72)
+
+
+func set_world_view_scale(scale_value: float) -> void:
+	_card_area_preview_world_to_screen_scale = maxf(scale_value, 0.01)
+	if card_area_preview != null and card_area_preview.visible and _drag_card_index >= 0 and _drag_card_index < _hand_cards.size():
+		card_area_preview.radius = _get_card_area_preview_radius(_hand_cards[_drag_card_index])
+		card_area_preview.queue_redraw()
 
 
 func set_card_hand_available(available: bool) -> void:
@@ -1341,296 +1439,6 @@ func _play_popup_bounce(target: Control, start_scale: float = 0.86, duration: fl
 	tween.tween_property(target, "scale", Vector2.ONE, duration).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
-func _spawn_ui_particles(screen_position: Vector2, color: Color, amount: int, radius: float, effect_name: String) -> void:
-	if ui_root == null:
-		return
-	_apply_ui_particle_profile(effect_name, amount, radius, color)
-
-
-func _get_end_overlay_particle_name(title_color: Color) -> String:
-	if title_color.g >= title_color.r:
-		return "VictoryOverlayParticles"
-	return "DefeatOverlayParticles"
-
-
-func _apply_ui_particle_profile(effect_name: String, amount: int, radius: float, color: Color) -> void:
-	_ui_particle_config.clear()
-	_ui_particle_config.merge(_get_base_ui_particle_config(effect_name, amount, radius, color), true)
-	_ui_particle_config.merge(_get_ui_particle_profile_overrides(effect_name, amount, radius), true)
-
-
-func _get_base_ui_particle_config(effect_name: String, amount: int, radius: float, color: Color) -> Dictionary:
-	return {
-		"name": effect_name,
-		"amount": amount,
-		"lifetime": 0.72,
-		"emission_radius": radius * 0.35,
-		"direction": Vector2.UP,
-		"velocity_min": radius * 0.25,
-		"velocity_max": radius * 1.25,
-		"scale_min": 1.0,
-		"scale_max": 3.2,
-		"gravity": Vector2(0.0, 140.0),
-		"spread": 180.0,
-		"explosiveness": 0.88,
-		"randomness": 0.48,
-		"angular_velocity_min": -120.0,
-		"angular_velocity_max": 120.0,
-		"damping_min": 18.0,
-		"damping_max": 70.0,
-		"color": color,
-		"z_index": 120,
-		"process_mode": Node.PROCESS_MODE_ALWAYS,
-	}
-
-
-func _get_ui_particle_profile_overrides(effect_name: String, amount: int, radius: float) -> Dictionary:
-	match effect_name:
-		"VictoryOverlayParticles":
-			return {
-				"amount": maxi(amount, 96),
-				"lifetime": 1.25,
-				"emission_radius": radius * 0.58,
-				"direction": Vector2.UP,
-				"spread": 105.0,
-				"velocity_min": radius * 0.18,
-				"velocity_max": radius * 0.96,
-				"gravity": Vector2(0.0, -80.0),
-				"scale_min": 1.8,
-				"scale_max": 4.8,
-				"damping_min": 34.0,
-				"damping_max": 90.0,
-			}
-		"DefeatOverlayParticles":
-			return {
-				"amount": maxi(amount, 72),
-				"lifetime": 0.95,
-				"emission_radius": radius * 0.42,
-				"direction": Vector2.DOWN,
-				"spread": 82.0,
-				"velocity_min": radius * 0.20,
-				"velocity_max": radius * 0.84,
-				"gravity": Vector2(0.0, 420.0),
-				"scale_min": 1.3,
-				"scale_max": 3.4,
-				"angular_velocity_min": -80.0,
-				"angular_velocity_max": 80.0,
-				"damping_min": 8.0,
-				"damping_max": 36.0,
-			}
-		"LevelClearParticles":
-			return {
-				"lifetime": 1.08,
-				"emission_radius": radius * 0.62,
-				"direction": Vector2.UP,
-				"spread": 72.0,
-				"velocity_min": radius * 0.12,
-				"velocity_max": radius * 0.72,
-				"gravity": Vector2(0.0, -46.0),
-				"scale_min": 1.4,
-				"scale_max": 3.8,
-				"damping_min": 22.0,
-				"damping_max": 86.0,
-			}
-		"LevelIntroParticles":
-			return {
-				"lifetime": 0.48,
-				"emission_radius": radius * 0.18,
-				"direction": Vector2.RIGHT,
-				"spread": 34.0,
-				"velocity_min": radius * 0.56,
-				"velocity_max": radius * 1.38,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.8,
-				"scale_max": 2.1,
-			}
-		"CardConsumeParticles":
-			return {
-				"lifetime": 0.44,
-				"emission_radius": radius * 0.20,
-				"direction": Vector2.UP,
-				"spread": 138.0,
-				"velocity_min": radius * 0.48,
-				"velocity_max": radius * 1.62,
-				"gravity": Vector2(0.0, 80.0),
-				"scale_min": 0.8,
-				"scale_max": 2.2,
-			}
-		"CardDiscardParticles":
-			return {
-				"lifetime": 0.52,
-				"emission_radius": radius * 0.24,
-				"direction": Vector2.DOWN,
-				"spread": 48.0,
-				"velocity_min": radius * 0.32,
-				"velocity_max": radius * 1.10,
-				"gravity": Vector2(0.0, 360.0),
-				"scale_min": 0.7,
-				"scale_max": 1.7,
-				"damping_min": 4.0,
-				"damping_max": 28.0,
-			}
-		"PauseParticles":
-			return {
-				"lifetime": 0.86,
-				"emission_radius": radius * 0.45,
-				"direction": Vector2.UP,
-				"spread": 180.0,
-				"velocity_min": radius * 0.06,
-				"velocity_max": radius * 0.28,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.7,
-				"scale_max": 1.5,
-				"explosiveness": 0.52,
-			}
-		"ConfirmDialogParticles":
-			return {
-				"lifetime": 0.62,
-				"emission_radius": radius * 0.30,
-				"direction": Vector2.UP,
-				"spread": 42.0,
-				"velocity_min": radius * 0.18,
-				"velocity_max": radius * 0.82,
-				"gravity": Vector2(0.0, 180.0),
-				"scale_min": 0.9,
-				"scale_max": 2.0,
-			}
-		"UpdatePopupParticles":
-			return {
-				"amount": maxi(amount, 34),
-				"lifetime": 0.74,
-				"emission_radius": radius * 0.24,
-				"direction": Vector2.UP,
-				"spread": 68.0,
-				"velocity_min": radius * 0.20,
-				"velocity_max": radius * 0.92,
-				"gravity": Vector2(0.0, 36.0),
-				"scale_min": 0.8,
-				"scale_max": 1.9,
-				"damping_min": 24.0,
-				"damping_max": 78.0,
-			}
-		"UpdateHistoryParticles":
-			return {
-				"amount": maxi(amount, 26),
-				"lifetime": 0.82,
-				"emission_radius": radius * 0.42,
-				"direction": Vector2.RIGHT,
-				"spread": 28.0,
-				"velocity_min": radius * 0.18,
-				"velocity_max": radius * 0.70,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.6,
-				"scale_max": 1.5,
-				"explosiveness": 0.42,
-				"damping_min": 30.0,
-				"damping_max": 96.0,
-			}
-		"PendingCardParticles":
-			return {
-				"amount": maxi(amount, 30),
-				"lifetime": 0.68,
-				"emission_radius": radius * 0.34,
-				"direction": Vector2.UP,
-				"spread": 96.0,
-				"velocity_min": radius * 0.22,
-				"velocity_max": radius * 1.12,
-				"gravity": Vector2(0.0, 96.0),
-				"scale_min": 0.9,
-				"scale_max": 2.4,
-				"damping_min": 18.0,
-				"damping_max": 62.0,
-			}
-		"CardSellParticles":
-			return {
-				"lifetime": 0.46,
-				"emission_radius": radius * 0.20,
-				"direction": Vector2.UP,
-				"spread": 58.0,
-				"velocity_min": radius * 0.42,
-				"velocity_max": radius * 1.36,
-				"gravity": Vector2(0.0, -120.0),
-				"scale_min": 0.7,
-				"scale_max": 1.9,
-			}
-		"BuildPanelParticles":
-			return {
-				"lifetime": 0.38,
-				"emission_radius": radius * 0.18,
-				"direction": Vector2.RIGHT,
-				"spread": 22.0,
-				"velocity_min": radius * 0.36,
-				"velocity_max": radius * 1.18,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.5,
-				"scale_max": 1.3,
-				"explosiveness": 0.72,
-				"damping_min": 26.0,
-				"damping_max": 80.0,
-			}
-		"LevelSelectOpenParticles":
-			return {
-				"amount": maxi(amount, 28),
-				"lifetime": 0.62,
-				"emission_radius": radius * 0.36,
-				"direction": Vector2.LEFT,
-				"spread": 34.0,
-				"velocity_min": radius * 0.30,
-				"velocity_max": radius * 1.06,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.8,
-				"scale_max": 2.0,
-				"damping_min": 28.0,
-				"damping_max": 88.0,
-			}
-		"LevelSelectCloseParticles":
-			return {
-				"amount": maxi(amount, 22),
-				"lifetime": 0.48,
-				"emission_radius": radius * 0.24,
-				"direction": Vector2.RIGHT,
-				"spread": 30.0,
-				"velocity_min": radius * 0.28,
-				"velocity_max": radius * 0.88,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.6,
-				"scale_max": 1.5,
-				"explosiveness": 0.62,
-				"damping_min": 34.0,
-				"damping_max": 96.0,
-			}
-		"ConsolePanelParticles":
-			return {
-				"amount": maxi(amount, 18),
-				"lifetime": 0.42,
-				"emission_radius": radius * 0.18,
-				"direction": Vector2.UP,
-				"spread": 26.0,
-				"velocity_min": radius * 0.28,
-				"velocity_max": radius * 0.86,
-				"gravity": Vector2.ZERO,
-				"scale_min": 0.5,
-				"scale_max": 1.3,
-				"explosiveness": 0.58,
-				"damping_min": 38.0,
-				"damping_max": 100.0,
-			}
-		"StartGameParticles":
-			return {
-				"lifetime": 0.78,
-				"emission_radius": radius * 0.50,
-				"direction": Vector2.UP,
-				"spread": 124.0,
-				"velocity_min": radius * 0.32,
-				"velocity_max": radius * 1.72,
-				"gravity": Vector2(0.0, 40.0),
-				"scale_min": 1.2,
-				"scale_max": 3.6,
-			}
-		_:
-			return {}
-
-
 func show_tower_panel(tower: Tower = null) -> void:
 	_selected_tower = tower
 
@@ -1641,6 +1449,9 @@ func show_tower_panel(tower: Tower = null) -> void:
 	var info_text := _format_tower_panel_info_text(tower)
 	var upgrade_text := _get_tower_upgrade_button_text(tower)
 	var upgrade_disabled := _is_tower_upgrade_button_disabled(tower)
+	var branch_mode := _uses_basic_branch_upgrade_buttons(tower)
+	var fire_text := _get_tower_fire_upgrade_button_text(tower) if branch_mode else ""
+	var ice_text := _get_tower_ice_upgrade_button_text(tower) if branch_mode else ""
 	var sell_text := _format_tower_sell_button_text(tower)
 	var tower_id := int(tower.get_instance_id())
 	if (
@@ -1649,6 +1460,9 @@ func show_tower_panel(tower: Tower = null) -> void:
 		and info_text == _tower_panel_cache_info
 		and upgrade_text == _tower_panel_cache_upgrade_text
 		and upgrade_disabled == _tower_panel_cache_upgrade_disabled
+		and branch_mode == _tower_panel_cache_branch_mode
+		and fire_text == _tower_panel_cache_fire_text
+		and ice_text == _tower_panel_cache_ice_text
 		and sell_text == _tower_panel_cache_sell_text
 	):
 		return
@@ -1658,11 +1472,23 @@ func show_tower_panel(tower: Tower = null) -> void:
 	_tower_panel_cache_info = info_text
 	_tower_panel_cache_upgrade_text = upgrade_text
 	_tower_panel_cache_upgrade_disabled = upgrade_disabled
+	_tower_panel_cache_branch_mode = branch_mode
+	_tower_panel_cache_fire_text = fire_text
+	_tower_panel_cache_ice_text = ice_text
 	_tower_panel_cache_sell_text = sell_text
 	tower_info_label.text = info_text
 	upgrade_button.text = upgrade_text
+	upgrade_button.visible = not branch_mode
 	_set_button_enabled(upgrade_button, not upgrade_disabled)
+	fire_upgrade_button.text = fire_text
+	fire_upgrade_button.visible = branch_mode
+	_set_button_enabled(fire_upgrade_button, branch_mode)
+	ice_upgrade_button.text = ice_text
+	ice_upgrade_button.visible = branch_mode
+	_set_button_enabled(ice_upgrade_button, branch_mode)
 	sell_button.text = sell_text
+	sell_button.position = Vector2(14.0, 180.0) if branch_mode else Vector2(130.0, 136.0)
+	sell_button.size = Vector2(222.0, 38.0) if branch_mode else Vector2(106.0, 42.0)
 
 
 func hide_tower_panel(immediate: bool = false) -> void:
@@ -1716,6 +1542,9 @@ func _reset_tower_panel_cache() -> void:
 	_tower_panel_cache_info = ""
 	_tower_panel_cache_upgrade_text = ""
 	_tower_panel_cache_upgrade_disabled = false
+	_tower_panel_cache_branch_mode = false
+	_tower_panel_cache_fire_text = ""
+	_tower_panel_cache_ice_text = ""
 	_tower_panel_cache_sell_text = ""
 
 
@@ -1727,6 +1556,26 @@ func _make_label(label_position: Vector2, label_size: Vector2, color: Color = TE
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_font_size_override("font_size", 13)
 	return label
+
+
+func _load_ui_texture(texture_path: String) -> Texture2D:
+	var image := Image.new()
+	var load_error := image.load(texture_path)
+	if load_error != OK:
+		push_warning("无法加载 UI 贴图：%s" % texture_path)
+		return null
+	return ImageTexture.create_from_image(image)
+
+
+func _make_texture_panel(panel_name: String, texture: Texture2D, panel_position: Vector2, panel_size: Vector2, mouse_filter_mode: int = Control.MOUSE_FILTER_IGNORE) -> TextureRect:
+	var panel := TextureRect.new()
+	panel.name = panel_name
+	panel.texture = texture
+	panel.position = panel_position
+	panel.size = panel_size
+	panel.mouse_filter = mouse_filter_mode
+	panel.stretch_mode = TextureRect.STRETCH_SCALE
+	return panel
 
 
 func _make_button(text: String, button_position: Vector2, button_size: Vector2, accent: Color = ACCENT) -> Button:
@@ -3365,12 +3214,16 @@ func _is_area_target_card(card: Dictionary) -> bool:
 
 
 func _get_card_area_preview_radius(card: Dictionary) -> float:
+	return _get_card_area_preview_world_radius(card) * _card_area_preview_world_to_screen_scale
+
+
+func _get_card_area_preview_world_radius(card: Dictionary) -> float:
 	var raw_radius: Variant = card.get("radius", CARD_AREA_PREVIEW_DEFAULT_RADIUS)
 	if raw_radius is int or raw_radius is float:
 		var radius := float(raw_radius)
-		if radius > 0.0 and radius <= CARD_AREA_PREVIEW_MAX_RADIUS:
-			return radius
-	return CARD_AREA_PREVIEW_DEFAULT_RADIUS
+		if radius > 0.0:
+			return minf(radius * WORLD_RANGE_SCALE, CARD_AREA_PREVIEW_MAX_RADIUS)
+	return CARD_AREA_PREVIEW_DEFAULT_RADIUS * WORLD_RANGE_SCALE
 
 
 func _get_card_id(card: Dictionary) -> String:
@@ -4049,6 +3902,10 @@ func _on_upgrade_pressed() -> void:
 	upgrade_pressed.emit()
 
 
+func _on_basic_branch_upgrade_pressed(branch_id: String) -> void:
+	basic_branch_upgrade_pressed.emit(branch_id)
+
+
 func _on_sell_pressed() -> void:
 	sell_pressed.emit()
 
@@ -4380,4 +4237,3 @@ func _apply_console_completion(completion: String, token_index: int, tokens: Pac
 	var suffix := " " if append_space else ""
 	console_input.text = " ".join(result_tokens) + suffix + after_caret
 	console_input.caret_column = (" ".join(result_tokens) + suffix).length()
-

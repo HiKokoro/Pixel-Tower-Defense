@@ -2,11 +2,15 @@ extends Node2D
 class_name WorldDecalRenderer
 
 var game: Main
+var _base_theme_asset_slug: String = ""
+var _base_texture: Texture2D = null
 
 
 func setup(game_ref: Main) -> void:
 	game = game_ref
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_load_current_base_texture()
 	queue_redraw()
 
 
@@ -21,8 +25,13 @@ func _draw_base() -> void:
 	if game.path_points.is_empty():
 		return
 
+	_load_current_base_texture()
 	var base_position := game.get_base_position()
 	var flash_ratio := clampf(game._base_hit_flash / 0.35, 0.0, 1.0)
+	if _base_texture != null:
+		_draw_base_texture(base_position, flash_ratio)
+		return
+
 	var body_color := _theme_color("base_body", Color(0.22, 0.39, 0.48)).lerp(Color(1.0, 0.25, 0.14), flash_ratio)
 	var plate_color := _theme_color("base_plate", Color(0.58, 0.68, 0.64)).lerp(Color(1.0, 0.84, 0.30), flash_ratio)
 	var glow_color := _theme_color("base_glow", Color(0.22, 0.86, 0.78)).lerp(Color(1.0, 0.30, 0.14), flash_ratio)
@@ -45,6 +54,21 @@ func _draw_base() -> void:
 		for index in range(6):
 			var ray := Vector2.RIGHT.rotated(TAU * float(index) / 6.0)
 			draw_line(base_position + ray * 23.0, base_position + ray * (40.0 + 8.0 * flash_ratio), Color(1.0, 0.46, 0.18, 0.44 * flash_ratio), 3.0, true)
+
+
+func _draw_base_texture(base_position: Vector2, flash_ratio: float) -> void:
+	var texture_size := Vector2(float(_base_texture.get_width()), float(_base_texture.get_height()))
+	var texture_rect := Rect2((base_position - texture_size * 0.5).snapped(Vector2.ONE), texture_size)
+	_draw_pixel_ellipse(base_position + Vector2(0.0, 24.0), Vector2(46.0, 13.0), Color(0.0, 0.0, 0.0, 0.20))
+	draw_texture_rect(_base_texture, texture_rect, false)
+	if flash_ratio <= 0.0:
+		return
+	var flash_color := Color(1.0, 0.32, 0.14, 0.34 * flash_ratio)
+	draw_rect(texture_rect, flash_color)
+	draw_arc(base_position, 44.0 + flash_ratio * 10.0, 0.0, TAU, 52, Color(1.0, 0.30, 0.12, 0.62 * flash_ratio), 4.0, true)
+	for index in range(6):
+		var ray := Vector2.RIGHT.rotated(TAU * float(index) / 6.0)
+		draw_line(base_position + ray * 25.0, base_position + ray * (46.0 + 8.0 * flash_ratio), Color(1.0, 0.46, 0.18, 0.44 * flash_ratio), 3.0, true)
 
 
 func _draw_road_spike_traps() -> void:
@@ -109,3 +133,35 @@ func _get_valid_theme_color(raw_color: Variant, fallback: Color) -> Color:
 	if raw_color is Color:
 		return raw_color
 	return fallback
+
+
+func _load_current_base_texture() -> void:
+	if game == null:
+		return
+	var next_slug := _get_current_map_theme_asset_slug()
+	if next_slug == _base_theme_asset_slug:
+		return
+	_base_theme_asset_slug = next_slug
+	_base_texture = null
+	if next_slug.is_empty():
+		return
+	_base_texture = _load_texture_asset("%s/%s/base.png" % [MapRenderer.MAP_ASSET_ROOT, next_slug])
+
+
+func _get_current_map_theme_asset_slug() -> String:
+	if game == null:
+		return ""
+	var level_index := clampi(game.current_level_index, 0, MapRenderer.MAP_THEME_ASSET_SLUGS.size() - 1)
+	if level_index < MapRenderer.MAP_THEME_ASSET_SLUGS.size():
+		return MapRenderer.MAP_THEME_ASSET_SLUGS[level_index]
+	return ""
+
+
+func _load_texture_asset(asset_path: String) -> Texture2D:
+	if not FileAccess.file_exists(asset_path):
+		return null
+	var image := Image.new()
+	var load_error := image.load(asset_path)
+	if load_error != OK or image.is_empty():
+		return null
+	return ImageTexture.create_from_image(image)

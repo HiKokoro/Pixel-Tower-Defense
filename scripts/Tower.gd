@@ -3,7 +3,11 @@ class_name Tower
 
 const ImpactEffect := preload("res://scripts/ImpactEffect.gd")
 const BASE_DAMAGE: int = 15
-const BASE_RANGE: float = 130.0
+const LEGACY_GRID_SIZE: float = 32.0
+const CURRENT_GRID_SIZE: float = 64.0
+const WORLD_RANGE_SCALE: float = CURRENT_GRID_SIZE / LEGACY_GRID_SIZE
+const LEGACY_BASE_RANGE: float = 130.0
+const BASE_RANGE: float = LEGACY_BASE_RANGE * WORLD_RANGE_SCALE
 const MAX_LEVEL: int = 3
 const TARGET_SCAN_INTERVAL: float = 0.08
 const TARGET_SCAN_JITTER_STEPS: int = 7
@@ -11,12 +15,30 @@ const RECOIL_DURATION_RATIO: float = 0.34
 const RECOIL_MIN_DURATION: float = 0.07
 const RECOIL_MAX_DURATION: float = 0.32
 const PROJECTILE_EFFECTIVE_RANGE_MULTIPLIER: float = 1.35
+const CONFIG_DEFAULT_COST: int = 50
+const CONFIG_MAX_COST: int = 100000
+const CONFIG_MAX_DAMAGE: int = 100000
+const CONFIG_DEFAULT_INTERVAL: float = 0.8
+const CONFIG_MAX_INTERVAL: float = 30.0
+const CONFIG_DEFAULT_PROJECTILE_SPEED: float = 360.0
+const CONFIG_MAX_PROJECTILE_SPEED: float = 4000.0
+const CONFIG_MAX_RAW_RANGE: float = 2000.0
+const CONFIG_MAX_SHOTS: int = 16
+const CONFIG_MAX_SPREAD: float = 180.0
+const CONFIG_MAX_SPLASH_RATIO: float = 10.0
+const CONFIG_MAX_PIERCE: int = 64
+const CONFIG_MAX_MULTIPLIER: float = 5.0
 const DEFAULT_TOWER_DISPLAY_NAME := "基础塔"
 const DEFAULT_AUGMENTATION_DISPLAY_NAME := "增幅塔"
 const DEFAULT_TRAIT_TEXT := "标准弹道"
 const MAX_LEVEL_PREVIEW_TEXT := "已达到最终形态"
 const BASIC_LEVEL_TWO_TRAIT_NAME := "强化核心"
-const BASIC_LEVEL_THREE_TRAIT_NAME := "过载中枢"
+const BASIC_LEVEL_THREE_TRAIT_NAME := "元素分支"
+const BASIC_FIRE_BRANCH_ID := "fire"
+const BASIC_ICE_BRANCH_ID := "ice"
+const BASIC_FIRE_BRANCH_DISPLAY_NAME := "火塔"
+const BASIC_ICE_BRANCH_DISPLAY_NAME := "冰塔"
+const BASIC_BRANCH_PREVIEW_TEXT := "等级3：选择火塔或冰塔"
 const RAPID_LEVEL_TWO_TRAIT_NAME := "双联枪管"
 const RAPID_LEVEL_THREE_TRAIT_NAME := "三联齐射"
 const SHOTGUN_LEVEL_TWO_TRAIT_NAME := "扩容弹仓"
@@ -32,7 +54,9 @@ const BASIC_BASE_TRAIT_TEXT := "均衡防御火力"
 const UPGRADE_PREVIEW_TEMPLATE := "等级%d：%s"
 const AUGMENTATION_TRAIT_LINE_TEMPLATE := "\n增幅：%s"
 const BASIC_LEVEL_TWO_TRAIT_TEMPLATE := "%s：射程扩大，装填加快"
-const BASIC_LEVEL_THREE_TRAIT_TEMPLATE := "%s：高伤害高射程均衡压制"
+const BASIC_LEVEL_THREE_TRAIT_TEMPLATE := "%s：可分支为持续灼烧或寒霜减速"
+const BASIC_FIRE_TRAIT_TEXT := "火塔：命中后造成持续烧伤"
+const BASIC_ICE_TRAIT_TEXT := "冰塔：命中后降低敌人移动速度"
 const RAPID_LEVEL_TWO_TRAIT_TEMPLATE := "%s：每次攻击发射两枚弹丸"
 const RAPID_LEVEL_THREE_TRAIT_TEMPLATE := "%s：三枚弹丸形成高速弹幕"
 const SHOTGUN_LEVEL_TWO_TRAIT_TEMPLATE := "%s：更宽扇形和更多弹丸"
@@ -70,6 +94,12 @@ var pierce_count: int = 0
 var execute_threshold: float = 0.0
 var execute_multiplier: float = 1.0
 var level_trait: String = _get_default_trait_text()
+var basic_branch: String = ""
+var burn_damage_per_tick: int = 0
+var burn_tick_interval: float = 0.5
+var burn_duration: float = 0.0
+var ice_slow_multiplier: float = 1.0
+var ice_slow_duration: float = 0.0
 
 var augmentation_id: String = ""
 var augmentation_name: String = ""
@@ -94,26 +124,60 @@ var _recoil_direction: Vector2 = Vector2.ZERO
 func setup(game_ref: Main, tower_grid_position: Vector2i, type_config: Dictionary) -> void:
 	game = game_ref
 	grid_position = tower_grid_position
-	tower_type_id = str(type_config.get("id", "basic"))
+	tower_type_id = _get_config_id(type_config, "id", "basic")
 	display_name = _get_tower_display_name(type_config)
-	total_invested = int(type_config.get("cost", 50))
-	damage = int(type_config.get("damage", BASE_DAMAGE))
-	attack_range = float(type_config.get("range", BASE_RANGE))
-	attack_interval = float(type_config.get("interval", 0.8))
-	projectile_speed = float(type_config.get("projectile_speed", 360.0))
-	shots_per_attack = int(type_config.get("shots", 1))
-	spread_angle = float(type_config.get("spread", 0.0))
-	splash_radius = float(type_config.get("splash_radius", 0.0))
-	splash_damage_ratio = float(type_config.get("splash_ratio", 0.0))
-	pierce_count = int(type_config.get("pierce", 0))
-	tower_color = type_config.get("color", Color(0.23, 0.48, 0.78))
-	barrel_color = type_config.get("barrel_color", Color(0.08, 0.13, 0.18))
-	projectile_color = type_config.get("projectile_color", Color(1.0, 0.83, 0.2))
+	total_invested = _get_config_int(type_config, "cost", CONFIG_DEFAULT_COST, 0, CONFIG_MAX_COST)
+	damage = _get_config_int(type_config, "damage", BASE_DAMAGE, 1, CONFIG_MAX_DAMAGE)
+	attack_range = scale_world_range(_get_config_float(type_config, "range", LEGACY_BASE_RANGE, 1.0, CONFIG_MAX_RAW_RANGE))
+	attack_interval = _get_config_float(type_config, "interval", CONFIG_DEFAULT_INTERVAL, 0.01, CONFIG_MAX_INTERVAL)
+	projectile_speed = _get_config_float(type_config, "projectile_speed", CONFIG_DEFAULT_PROJECTILE_SPEED, 1.0, CONFIG_MAX_PROJECTILE_SPEED)
+	shots_per_attack = _get_config_int(type_config, "shots", 1, 1, CONFIG_MAX_SHOTS)
+	spread_angle = _get_config_float(type_config, "spread", 0.0, 0.0, CONFIG_MAX_SPREAD)
+	splash_radius = scale_world_range(_get_config_float(type_config, "splash_radius", 0.0, 0.0, CONFIG_MAX_RAW_RANGE))
+	splash_damage_ratio = _get_config_float(type_config, "splash_ratio", 0.0, 0.0, CONFIG_MAX_SPLASH_RATIO)
+	pierce_count = _get_config_int(type_config, "pierce", 0, 0, CONFIG_MAX_PIERCE)
+	tower_color = _get_config_color(type_config, "color", Color(0.23, 0.48, 0.78))
+	barrel_color = _get_config_color(type_config, "barrel_color", Color(0.08, 0.13, 0.18))
+	projectile_color = _get_config_color(type_config, "projectile_color", Color(1.0, 0.83, 0.2))
 	level_trait = _get_base_trait()
+	basic_branch = ""
+	burn_damage_per_tick = 0
+	burn_tick_interval = 0.5
+	burn_duration = 0.0
+	ice_slow_multiplier = 1.0
+	ice_slow_duration = 0.0
 	_upgrade_costs = _get_upgrade_costs()
 	_refresh_range_cache()
 	_refresh_damage_cache()
 	_refresh_target_scan_interval()
+
+
+static func scale_world_range(raw_range: float) -> float:
+	return raw_range * WORLD_RANGE_SCALE
+
+
+func _get_config_int(config: Dictionary, key: String, default_value: int, min_value: int, max_value: int) -> int:
+	var raw_value: Variant = config.get(key, default_value)
+	if raw_value is int or raw_value is float:
+		return clampi(int(round(float(raw_value))), min_value, max_value)
+	return default_value
+
+
+func _get_config_float(config: Dictionary, key: String, default_value: float, min_value: float, max_value: float) -> float:
+	var raw_value: Variant = config.get(key, default_value)
+	if raw_value is int or raw_value is float:
+		return clampf(float(raw_value), min_value, max_value)
+	return default_value
+
+
+func _get_config_color(config: Dictionary, key: String, fallback: Color) -> Color:
+	var raw_value: Variant = config.get(key, fallback)
+	return raw_value if raw_value is Color else fallback
+
+
+func _get_config_id(config: Dictionary, key: String, fallback: String) -> String:
+	var id := str(config.get(key, fallback)).strip_edges()
+	return id if not id.is_empty() else fallback
 
 
 func _process(delta: float) -> void:
@@ -179,6 +243,18 @@ func can_upgrade() -> bool:
 	return level < MAX_LEVEL
 
 
+func can_choose_basic_branch() -> bool:
+	return tower_type_id == "basic" and level == 2 and basic_branch.is_empty()
+
+
+func is_upgrade_choice_valid(branch_id: String = "") -> bool:
+	if not can_upgrade():
+		return false
+	if not can_choose_basic_branch():
+		return branch_id.is_empty()
+	return branch_id.is_empty() or _is_basic_branch_id(branch_id)
+
+
 func get_upgrade_cost() -> int:
 	if level >= MAX_LEVEL:
 		return 0
@@ -186,13 +262,18 @@ func get_upgrade_cost() -> int:
 	return _upgrade_costs[level - 1]
 
 
-func upgrade() -> bool:
+func upgrade(branch_id: String = "") -> bool:
 	if not can_upgrade():
+		return false
+	if not is_upgrade_choice_valid(branch_id):
 		return false
 
 	var cost := get_upgrade_cost()
+	var selected_basic_branch := _get_basic_upgrade_branch_or_default(branch_id)
 	total_invested += cost
 	level += 1
+	if not selected_basic_branch.is_empty():
+		basic_branch = selected_basic_branch
 
 	_apply_upgrade_stats()
 	_refresh_range_cache()
@@ -211,6 +292,8 @@ func get_trait_summary() -> String:
 func get_upgrade_preview() -> String:
 	if not can_upgrade():
 		return _get_max_level_preview_text()
+	if can_choose_basic_branch():
+		return _get_basic_branch_preview_text()
 
 	return _format_upgrade_preview_text(level + 1, _get_upgrade_preview_trait_name(tower_type_id, level + 1))
 
@@ -280,11 +363,11 @@ func can_apply_augmentation() -> bool:
 func apply_augmentation(type_config: Dictionary) -> bool:
 	if not can_apply_augmentation():
 		return false
-	augmentation_id = str(type_config.get("id", "amplifier"))
+	augmentation_id = _get_config_id(type_config, "id", "amplifier")
 	augmentation_name = _get_augmentation_display_name(type_config)
-	damage_multiplier *= float(type_config.get("damage_multiplier", 1.0))
-	range_multiplier *= float(type_config.get("range_multiplier", 1.0))
-	total_invested += int(type_config.get("cost", 0))
+	damage_multiplier *= _get_config_float(type_config, "damage_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
+	range_multiplier *= _get_config_float(type_config, "range_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
+	total_invested += _get_config_int(type_config, "cost", 0, 0, CONFIG_MAX_COST)
 	level_trait += _format_augmentation_trait_line_text(augmentation_name)
 	_refresh_range_cache()
 	_refresh_damage_cache()
@@ -317,6 +400,10 @@ func _get_default_trait_text() -> String:
 
 func _get_max_level_preview_text() -> String:
 	return MAX_LEVEL_PREVIEW_TEXT
+
+
+func _get_basic_branch_preview_text() -> String:
+	return BASIC_BRANCH_PREVIEW_TEXT
 
 
 func _format_upgrade_preview_text(next_level: int, trait_name: String) -> String:
@@ -403,6 +490,26 @@ func _format_basic_level_two_trait_text() -> String:
 
 func _format_basic_level_three_trait_text() -> String:
 	return BASIC_LEVEL_THREE_TRAIT_TEMPLATE % _get_basic_upgrade_trait_name(3)
+
+
+func _format_basic_fire_trait_text() -> String:
+	return BASIC_FIRE_TRAIT_TEXT
+
+
+func _format_basic_ice_trait_text() -> String:
+	return BASIC_ICE_TRAIT_TEXT
+
+
+func _is_basic_branch_id(branch_id: String) -> bool:
+	return branch_id == BASIC_FIRE_BRANCH_ID or branch_id == BASIC_ICE_BRANCH_ID
+
+
+func _get_basic_upgrade_branch_or_default(branch_id: String) -> String:
+	if not can_choose_basic_branch():
+		return ""
+	if branch_id.is_empty():
+		return BASIC_FIRE_BRANCH_ID
+	return branch_id if _is_basic_branch_id(branch_id) else ""
 
 
 func _format_rapid_level_two_trait_text() -> String:
@@ -534,16 +641,22 @@ func _refresh_damage_cache() -> void:
 
 
 func _is_target_valid(enemy) -> bool:
-	if not is_instance_valid(enemy):
-		return false
+	return _get_valid_enemy_target(enemy) != null
 
+
+func _get_valid_enemy_target(enemy) -> Enemy:
+	if not is_instance_valid(enemy):
+		return null
 	var target_enemy := enemy as Enemy
-	return (
-		target_enemy != null
-		and not target_enemy.is_dead
-		and not target_enemy.has_reached_end
-		and global_position.distance_squared_to(target_enemy.global_position) <= _effective_range_sq
-	)
+	if target_enemy == null:
+		return null
+	if target_enemy.is_dead:
+		return null
+	if target_enemy.has_reached_end:
+		return null
+	if global_position.distance_squared_to(target_enemy.global_position) > _effective_range_sq:
+		return null
+	return target_enemy
 
 
 func _find_target() -> Enemy:
@@ -553,21 +666,19 @@ func _find_target() -> Enemy:
 	var best_progress := -1.0
 
 	for enemy in game.get_active_enemies():
-		if enemy == null or not is_instance_valid(enemy) or enemy.is_dead or enemy.has_reached_end:
+		var valid_enemy := _get_valid_enemy_target(enemy)
+		if valid_enemy == null:
 			continue
 
-		if global_position.distance_squared_to(enemy.global_position) > _effective_range_sq:
-			continue
-
-		var progress: float = enemy.get_path_progress()
-		if enemy.is_taunt:
+		var progress: float = valid_enemy.get_path_progress()
+		if valid_enemy.is_taunt:
 			if progress > best_taunt_progress:
 				best_taunt_progress = progress
-				best_taunt_enemy = enemy
+				best_taunt_enemy = valid_enemy
 			continue
 		if progress > best_progress:
 			best_progress = progress
-			best_enemy = enemy
+			best_enemy = valid_enemy
 
 	if best_taunt_enemy != null:
 		return best_taunt_enemy
@@ -603,6 +714,7 @@ func _fire_at(enemy: Enemy) -> void:
 			_get_projectile_max_distance(),
 			_get_projectile_visual_profile()
 		)
+		projectile.setup_status_effect(_get_projectile_status_effect())
 		game.add_projectile(projectile)
 		game.spawn_muzzle_particles(global_position + shot_direction * 25.0 + side * offset, shot_direction, projectile_color)
 
@@ -698,6 +810,26 @@ func _get_attack_damage(enemy: Enemy) -> int:
 	return result
 
 
+func _get_projectile_status_effect() -> Dictionary:
+	if tower_type_id != "basic" or level < 3:
+		return {}
+	match basic_branch:
+		BASIC_FIRE_BRANCH_ID:
+			return {
+				"id": BASIC_FIRE_BRANCH_ID,
+				"burn_damage_per_tick": burn_damage_per_tick,
+				"burn_tick_interval": burn_tick_interval,
+				"burn_duration": burn_duration,
+			}
+		BASIC_ICE_BRANCH_ID:
+			return {
+				"id": BASIC_ICE_BRANCH_ID,
+				"slow_multiplier": ice_slow_multiplier,
+				"slow_duration": ice_slow_duration,
+			}
+	return {}
+
+
 func _get_upgrade_costs() -> Array[int]:
 	match tower_type_id:
 		"rapid":
@@ -734,29 +866,51 @@ func _apply_basic_upgrade() -> void:
 	match level:
 		2:
 			damage += 8
-			attack_range += 28.0
+			attack_range += scale_world_range(28.0)
 			attack_interval *= 0.88
 			projectile_speed += 55.0
 			level_trait = _format_basic_level_two_trait_text()
 		3:
-			damage += 14
-			attack_range += 34.0
-			attack_interval *= 0.78
-			projectile_speed += 75.0
-			level_trait = _format_basic_level_three_trait_text()
+			match basic_branch:
+				BASIC_ICE_BRANCH_ID:
+					display_name = BASIC_ICE_BRANCH_DISPLAY_NAME
+					damage += 6
+					attack_range += scale_world_range(38.0)
+					attack_interval *= 0.86
+					projectile_speed += 60.0
+					tower_color = Color(0.24, 0.58, 0.88)
+					barrel_color = Color(0.05, 0.13, 0.20)
+					projectile_color = Color(0.56, 0.92, 1.0)
+					ice_slow_multiplier = 0.52
+					ice_slow_duration = 2.2
+					level_trait = _format_basic_ice_trait_text()
+				_:
+					basic_branch = BASIC_FIRE_BRANCH_ID
+					display_name = BASIC_FIRE_BRANCH_DISPLAY_NAME
+					damage += 11
+					attack_range += scale_world_range(28.0)
+					attack_interval *= 0.82
+					projectile_speed += 75.0
+					tower_color = Color(0.88, 0.34, 0.17)
+					barrel_color = Color(0.16, 0.08, 0.05)
+					projectile_color = Color(1.0, 0.46, 0.10)
+					burn_damage_per_tick = 6
+					burn_tick_interval = 0.5
+					burn_duration = 3.0
+					level_trait = _format_basic_fire_trait_text()
 
 
 func _apply_rapid_upgrade() -> void:
 	match level:
 		2:
 			damage += 2
-			attack_range += 18.0
+			attack_range += scale_world_range(18.0)
 			attack_interval *= 0.90
 			shots_per_attack = 2
 			level_trait = _format_rapid_level_two_trait_text()
 		3:
 			damage += 3
-			attack_range += 22.0
+			attack_range += scale_world_range(22.0)
 			attack_interval *= 0.78
 			shots_per_attack = 3
 			level_trait = _format_rapid_level_three_trait_text()
@@ -766,7 +920,7 @@ func _apply_shotgun_upgrade() -> void:
 	match level:
 		2:
 			damage += 4
-			attack_range += 14.0
+			attack_range += scale_world_range(14.0)
 			shots_per_attack = 6
 			spread_angle = 1.10
 			level_trait = _format_shotgun_level_two_trait_text()
@@ -782,16 +936,16 @@ func _apply_cannon_upgrade() -> void:
 	match level:
 		2:
 			damage += 18
-			attack_range += 20.0
-			splash_radius = 74.0
+			attack_range += scale_world_range(20.0)
+			splash_radius = scale_world_range(74.0)
 			splash_damage_ratio = 0.62
 			projectile_speed += 35.0
 			level_trait = _format_cannon_level_two_trait_text()
 		3:
 			damage += 30
-			attack_range += 30.0
+			attack_range += scale_world_range(30.0)
 			attack_interval *= 0.86
-			splash_radius = 96.0
+			splash_radius = scale_world_range(96.0)
 			splash_damage_ratio = 0.78
 			projectile_speed += 45.0
 			level_trait = _format_cannon_level_three_trait_text()
@@ -801,13 +955,13 @@ func _apply_sniper_upgrade() -> void:
 	match level:
 		2:
 			damage += 34
-			attack_range += 48.0
+			attack_range += scale_world_range(48.0)
 			projectile_speed += 180.0
 			attack_interval *= 0.94
 			level_trait = _format_sniper_level_two_trait_text()
 		3:
 			damage += 58
-			attack_range += 62.0
+			attack_range += scale_world_range(62.0)
 			projectile_speed += 220.0
 			execute_threshold = 0.35
 			execute_multiplier = 1.9
@@ -884,10 +1038,19 @@ func _draw_basic_tower(direction: Vector2) -> void:
 	_draw_rect_center(Vector2.ZERO, Vector2(4.0 if level < 3 else 7.0, 4.0 if level < 3 else 7.0), projectile_color)
 	_draw_corner_bolts(Color(0.78, 0.94, 1.0, 0.82), 23.0, 4.0)
 	if level >= 3:
-		_draw_rect_center(Vector2(0.0, -22.0), Vector2(24.0, 5.0), projectile_color.lightened(0.16))
-		_draw_rect_center(Vector2(0.0, 22.0), Vector2(24.0, 5.0), projectile_color.lightened(0.04))
-		_draw_rect_center(Vector2(-23.0, 15.0), Vector2(6.0, 12.0), Color(0.88, 0.95, 1.0, 0.72))
-		_draw_rect_center(Vector2(23.0, 15.0), Vector2(6.0, 12.0), Color(0.88, 0.95, 1.0, 0.72))
+		if basic_branch == BASIC_ICE_BRANCH_ID:
+			_draw_rect_center(Vector2(0.0, -22.0), Vector2(28.0, 5.0), Color(0.66, 0.94, 1.0, 0.88))
+			_draw_rect_center(Vector2(0.0, 22.0), Vector2(28.0, 5.0), Color(0.38, 0.74, 1.0, 0.70))
+			for marker in [Vector2(-23.0, 13.0), Vector2(23.0, 13.0), Vector2(-16.0, -24.0), Vector2(16.0, -24.0)]:
+				_draw_rect_center(marker, Vector2(7.0, 13.0), Color(0.78, 0.97, 1.0, 0.82))
+			draw_arc(Vector2.ZERO, 28.0, -0.15, TAU - 0.15, 28, Color(0.62, 0.94, 1.0, 0.55), 2.0, false)
+		else:
+			_draw_rect_center(Vector2(0.0, -22.0), Vector2(28.0, 5.0), Color(1.0, 0.64, 0.22, 0.92))
+			_draw_rect_center(Vector2(0.0, 22.0), Vector2(28.0, 5.0), Color(0.95, 0.26, 0.12, 0.78))
+			_draw_rect_center(Vector2(-23.0, 15.0), Vector2(7.0, 13.0), Color(1.0, 0.74, 0.24, 0.82))
+			_draw_rect_center(Vector2(23.0, 15.0), Vector2(7.0, 13.0), Color(1.0, 0.74, 0.24, 0.82))
+			for flame_tip in [side * -10.0 + direction * 31.0, side * 10.0 + direction * 31.0, direction * 36.0]:
+				draw_circle(flame_tip.snapped(Vector2.ONE), 3.0, Color(1.0, 0.82, 0.22, 0.82))
 
 
 func _draw_rapid_tower(direction: Vector2) -> void:

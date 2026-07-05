@@ -26,6 +26,12 @@ var trail_color: Color = Color(1.0, 0.45, 0.1, 0.8)
 var projectile_size: float = 5.0
 var visual_profile: String = VISUAL_BASIC
 var max_travel_distance: float = 0.0
+var status_effect_id: String = ""
+var burn_damage_per_tick: int = 0
+var burn_tick_interval: float = 0.5
+var burn_duration: float = 0.0
+var slow_multiplier: float = 1.0
+var slow_duration: float = 0.0
 var _trail_timer: float = 0.0
 var _trail_interval: float = TRAIL_INTERVAL_STANDARD
 var _hit_radius_sq: float = hit_radius * hit_radius
@@ -73,12 +79,23 @@ func set_game(game_ref: Main) -> void:
 	game = game_ref
 
 
+func setup_status_effect(effect: Dictionary) -> void:
+	status_effect_id = str(effect.get("id", "")).strip_edges()
+	burn_damage_per_tick = maxi(int(effect.get("burn_damage_per_tick", 0)), 0)
+	burn_tick_interval = maxf(float(effect.get("burn_tick_interval", 0.5)), 0.05)
+	burn_duration = maxf(float(effect.get("burn_duration", 0.0)), 0.0)
+	slow_multiplier = clampf(float(effect.get("slow_multiplier", 1.0)), 0.15, 1.0)
+	slow_duration = maxf(float(effect.get("slow_duration", 0.0)), 0.0)
+
+
 func _process(delta: float) -> void:
 	_process_linear_motion(delta)
 
 
 func _process_linear_motion(delta: float) -> void:
 	var step := speed * delta
+	if _should_limit_to_max_travel_distance():
+		step = minf(step, maxf(max_travel_distance - _travel_distance, 0.0))
 	var previous_position := global_position
 	var next_position := global_position + _travel_direction * step
 	global_position = next_position
@@ -95,6 +112,9 @@ func _process_linear_motion(delta: float) -> void:
 			return
 
 	if _should_free_after_travel():
+		if _should_auto_detonate_at_travel_limit():
+			target = null
+			_apply_impact_damage(global_position)
 		queue_free()
 		return
 
@@ -138,9 +158,11 @@ func _apply_impact_damage(impact_position: Vector2) -> bool:
 	if game_node != null:
 		_spawn_impact_visuals(game_node, impact_position)
 
-	if is_instance_valid(target) and not target.is_dead and not target.has_reached_end and not _hit_enemy_ids.has(target.get_instance_id()):
-		_hit_enemy_ids[target.get_instance_id()] = true
-		target.take_damage(damage)
+	var direct_target := _is_valid_enemy_target(target)
+	if direct_target != null and not _hit_enemy_ids.has(direct_target.get_instance_id()):
+		_hit_enemy_ids[direct_target.get_instance_id()] = true
+		direct_target.take_damage(damage)
+		_apply_status_to_enemy(direct_target)
 
 	if splash_radius <= 0.0 or splash_damage <= 0:
 		return _try_continue_pierce(impact_position)
@@ -159,10 +181,25 @@ func _apply_impact_damage(impact_position: Vector2) -> bool:
 
 
 func _apply_splash_to_enemy(enemy: Enemy, impact_position: Vector2) -> void:
-	if enemy == null or enemy == target or not is_instance_valid(enemy) or enemy.is_dead or enemy.has_reached_end:
+	var splash_target := _is_valid_enemy_target(enemy)
+	if splash_target == null or splash_target == target:
 		return
-	if impact_position.distance_squared_to(enemy.global_position) <= _splash_radius_sq:
-		enemy.take_damage(splash_damage)
+	if impact_position.distance_squared_to(splash_target.global_position) <= _splash_radius_sq:
+		splash_target.take_damage(splash_damage)
+		_apply_status_to_enemy(splash_target)
+
+
+func _apply_status_to_enemy(enemy: Enemy) -> void:
+	var status_target := _is_valid_enemy_target(enemy)
+	if status_target == null:
+		return
+	match status_effect_id:
+		Tower.BASIC_FIRE_BRANCH_ID:
+			if burn_damage_per_tick > 0 and burn_duration > 0.0:
+				status_target.apply_burn(burn_damage_per_tick, burn_tick_interval, burn_duration)
+		Tower.BASIC_ICE_BRANCH_ID:
+			if slow_duration > 0.0:
+				status_target.apply_slow(slow_multiplier, slow_duration)
 
 
 func _try_continue_pierce(impact_position: Vector2) -> bool:
@@ -192,24 +229,49 @@ func _find_linear_motion_hit(from_position: Vector2, to_position: Vector2) -> En
 	var best_enemy: Enemy = null
 	var best_forward := INF
 	for enemy in game_node.get_active_enemies():
-		if enemy == null or not is_instance_valid(enemy) or enemy.is_dead or enemy.has_reached_end:
+		var valid_enemy := _is_valid_enemy_target(enemy)
+		if valid_enemy == null:
 			continue
-		if _hit_enemy_ids.has(enemy.get_instance_id()):
+		if _hit_enemy_ids.has(valid_enemy.get_instance_id()):
 			continue
-		var collision_radius := hit_radius + maxf(enemy.body_radius, 1.0)
-		var closest_point := _closest_point_on_segment(enemy.global_position, from_position, to_position)
-		if closest_point.distance_squared_to(enemy.global_position) > collision_radius * collision_radius:
+		var collision_radius := hit_radius + maxf(valid_enemy.body_radius, 1.0)
+		var closest_point := _closest_point_on_segment(valid_enemy.global_position, from_position, to_position)
+		if closest_point.distance_squared_to(valid_enemy.global_position) > collision_radius * collision_radius:
 			continue
 		if segment_length_sq <= 0.001:
-			return enemy
+			return valid_enemy
 		var forward_distance := (closest_point - from_position).dot(segment_direction)
 		if forward_distance < -0.01:
 			continue
 		if forward_distance < best_forward:
 			best_forward = forward_distance
-			best_enemy = enemy
+			best_enemy = valid_enemy
 	return best_enemy
 
+
+func _is_valid_enemy_target(enemy) -> Enemy:
+	if not is_instance_valid(enemy):
+		return null
+	var target_enemy := enemy as Enemy
+	if target_enemy == null:
+		return null
+	if target_enemy.is_dead:
+		return null
+	if target_enemy.has_reached_end:
+		return null
+	return target_enemy
+
+
+func _is_cannon_splash_shell() -> bool:
+	return visual_profile == VISUAL_CANNON and splash_radius > 0.0 and splash_damage > 0
+
+
+func _should_limit_to_max_travel_distance() -> bool:
+	return visual_profile != VISUAL_SNIPER and max_travel_distance > 0.0
+
+
+func _should_auto_detonate_at_travel_limit() -> bool:
+	return _is_cannon_splash_shell() and max_travel_distance > 0.0
 
 func _closest_point_on_segment(point: Vector2, from_position: Vector2, to_position: Vector2) -> Vector2:
 	var segment := to_position - from_position

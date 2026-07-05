@@ -19,6 +19,8 @@ logic_rarity_test_output.txt
 
 # Unused/raw local material folders
 raw_materials/
+.test_pic/
+下次继续上下文.md
 
 # Local engine binaries and archives
 Godot_*.exe

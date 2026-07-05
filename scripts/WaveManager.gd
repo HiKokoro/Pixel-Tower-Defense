@@ -243,15 +243,19 @@ func _pick_route_index(wave_index: int, _spawn_index: int, batch_index: int = 0)
 func _normalize_enemy_types(available_enemy_types: Array) -> Array[String]:
 	var normalized_types: Array[String] = []
 	for type_value in available_enemy_types:
-		var type_id := str(type_value).strip_edges()
-		if type_id.is_empty():
+		var clean_id := _clean_enemy_type_id(type_value)
+		if clean_id.is_empty() or normalized_types.has(clean_id):
 			continue
-		if normalized_types.has(type_id):
-			continue
-		normalized_types.append(type_id)
+		normalized_types.append(clean_id)
 	if normalized_types.is_empty():
 		normalized_types.append("grunt")
 	return normalized_types
+
+
+func _clean_enemy_type_id(raw_type: Variant) -> String:
+	# setup 阶段只做字符串清洗和去重，避免把调试探针/未来配置 ID 过早折叠成 grunt。
+	# 真正读取敌人属性时仍会走 _sanitize_enemy_type_id，以当前游戏配置表做最终兜底。
+	return str(raw_type).strip_edges()
 
 
 func _sanitize_enemy_type_id(raw_type: Variant) -> String:

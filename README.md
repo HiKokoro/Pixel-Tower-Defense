@@ -83,7 +83,7 @@ The repository intentionally excludes local-only files such as:
 - Temporary continuation notes
 - Unused raw material folders
 
-Runtime-critical assets that are referenced by the project, such as `enemy1/`, are kept in the repository.
+Runtime-critical assets that are referenced by the project, such as `assets/enemies/` and `assets/maps/`, are kept in the repository.
 
 ## Project Structure
 
@@ -110,11 +110,14 @@ docs/
   ART_DRAWING_SPEC.md
   CARD_STRENGTH_RULES.md
   DEBUG_CONSOLE.md
-enemy1/
-  walk1.png
-  walk2.png
-  walk3.png
-  walk4.png
+assets/
+  enemies/
+    grunt/
+    runner/
+    brute/
+    shield/
+    elite/
+  maps/
 ```
 
 ## License
@@ -207,7 +210,7 @@ Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/Cod
 - 临时接手上下文文件
 - 未使用的原始素材目录
 
-项目运行实际引用的必要资源，例如 `enemy1/` 中的敌人行走图片，会保留在仓库中。
+项目运行实际引用的必要资源，例如 `assets/enemies/` 和 `assets/maps/`，会保留在仓库中。
 
 ## 项目结构
 
@@ -234,11 +237,14 @@ docs/
   ART_DRAWING_SPEC.md
   CARD_STRENGTH_RULES.md
   DEBUG_CONSOLE.md
-enemy1/
-  walk1.png
-  walk2.png
-  walk3.png
-  walk4.png
+assets/
+  enemies/
+    grunt/
+    runner/
+    brute/
+    shield/
+    elite/
+  maps/
 ```
 
 ## 许可证

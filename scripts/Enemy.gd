@@ -26,6 +26,10 @@ var has_reached_end: bool = false
 var is_attacking_base: bool = false
 var speed_multiplier: float = 1.0
 var slow_time: float = 0.0
+var burn_time: float = 0.0
+var burn_tick_timer: float = 0.0
+var burn_damage_per_tick: int = 0
+var burn_tick_interval: float = 0.5
 var attraction_position: Vector2 = Vector2.ZERO
 var attraction_time: float = 0.0
 var attraction_strength: float = 0.0
@@ -34,20 +38,20 @@ var _traveled_distance: float = 0.0
 var _total_path_length: float = 1.0
 var _path_progress: float = 0.0
 var _attack_timer: float = 0.0
+var _hit_flash_time: float = 0.0
 var visual_preview_only: bool = false
 var _sprite: AnimatedSprite2D
+var _sprite_hit_flash_overlay: Polygon2D
 var _move_direction: Vector2 = Vector2.RIGHT
 var _step_particle_timer: float = 0.0
-static var _enemy1_sprite_frames_cache: SpriteFrames
+static var _enemy_sprite_frames_cache: Dictionary = {}
 
-const ENEMY1_WALK_FRAMES: Array[String] = [
-	"res://enemy1/walk1.png",
-	"res://enemy1/walk2.png",
-	"res://enemy1/walk3.png",
-	"res://enemy1/walk4.png",
-]
-const ENEMY1_TARGET_SIZE: float = 34.0
+const ENEMY_ANIMATED_TYPES: Array[String] = ["grunt", "runner", "brute", "shield", "taunt", "elite"]
+const ENEMY_WALK_FRAME_COUNT: int = 4
+const ENEMY_SPRITE_MIN_TARGET_SIZE: float = 34.0
 const STEP_PARTICLE_INTERVAL: float = 0.28
+const HIT_FLASH_DURATION: float = 0.10
+const HIT_FLASH_MAX_ALPHA: float = 0.58
 const DEFAULT_ENEMY_DISPLAY_NAME := "步兵"
 const DEFAULT_HEALTH: int = 50
 const DEFAULT_SPEED: float = 70.0
@@ -62,7 +66,9 @@ const MAX_BASE_DAMAGE: int = 100
 
 
 func setup(points: Array[Vector2], enemy_health: int, move_speed: float, kill_reward: int, type_config: Dictionary = {}, cached_path_length: float = -1.0) -> void:
-	path_points = points
+	path_points = []
+	for point in points:
+		path_points.append(point)
 	max_health = _sanitize_positive_int(enemy_health, DEFAULT_HEALTH, MAX_HEALTH)
 	health = max_health
 	speed = _sanitize_positive_float(move_speed, DEFAULT_SPEED, MAX_SPEED)
@@ -79,6 +85,8 @@ func setup(points: Array[Vector2], enemy_health: int, move_speed: float, kill_re
 	_traveled_distance = 0.0
 	_total_path_length = maxf(cached_path_length, 1.0) if cached_path_length > 0.0 else _calculate_path_length()
 	_path_progress = 0.0
+	_hit_flash_time = 0.0
+	_sync_hit_flash_visual()
 
 	if not path_points.is_empty():
 		position = path_points[0]
@@ -126,6 +134,9 @@ func set_visual_preview_only(enabled: bool) -> void:
 	set_process(not enabled)
 	set_physics_process(not enabled)
 	slow_time = 0.0
+	burn_time = 0.0
+	burn_tick_timer = 0.0
+	burn_damage_per_tick = 0
 	attraction_time = 0.0
 	is_attacking_base = false
 	queue_redraw()
@@ -140,11 +151,19 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if visual_preview_only:
 		return
+	if _hit_flash_time > 0.0:
+		_hit_flash_time = maxf(_hit_flash_time - delta, 0.0)
+		_sync_hit_flash_visual()
+		queue_redraw()
 	if slow_time > 0.0:
 		slow_time = maxf(slow_time - delta, 0.0)
 		if slow_time <= 0.0:
 			speed_multiplier = 1.0
 			queue_redraw()
+	if burn_time > 0.0:
+		_process_burn_damage(delta)
+		if is_dead:
+			return
 	if attraction_time > 0.0:
 		attraction_time = maxf(attraction_time - delta, 0.0)
 		if attraction_time <= 0.0:
@@ -212,6 +231,9 @@ func take_damage(amount: int) -> void:
 		return
 
 	health -= amount
+	if amount > 0:
+		_hit_flash_time = HIT_FLASH_DURATION
+		_sync_hit_flash_visual()
 	if health <= 0:
 		_die()
 	else:
@@ -229,6 +251,18 @@ func apply_slow(multiplier: float, duration: float) -> void:
 	queue_redraw()
 
 
+func apply_burn(damage_per_tick: int, tick_interval: float, duration: float) -> void:
+	if is_dead or has_reached_end:
+		return
+	var was_burning := burn_time > 0.0
+	burn_damage_per_tick = maxi(burn_damage_per_tick, damage_per_tick)
+	burn_tick_interval = maxf(tick_interval, 0.05)
+	burn_time = maxf(burn_time, duration)
+	if not was_burning or burn_tick_timer <= 0.0:
+		burn_tick_timer = burn_tick_interval
+	queue_redraw()
+
+
 func apply_speed_effect(multiplier: float, duration: float) -> void:
 	speed_multiplier = clampf(multiplier, 0.15, 2.0)
 	slow_time = maxf(slow_time, duration)
@@ -240,6 +274,18 @@ func apply_attraction(target_position: Vector2, duration: float, strength: float
 	attraction_position = target_position
 	attraction_time = maxf(attraction_time, duration)
 	attraction_strength = maxf(attraction_strength, strength)
+	queue_redraw()
+
+
+func _process_burn_damage(delta: float) -> void:
+	burn_time = maxf(burn_time - delta, 0.0)
+	burn_tick_timer -= delta
+	if burn_tick_timer <= 0.0 and burn_damage_per_tick > 0:
+		take_damage(burn_damage_per_tick)
+		burn_tick_timer = burn_tick_interval
+	if burn_time <= 0.0:
+		burn_damage_per_tick = 0
+		burn_tick_timer = 0.0
 	queue_redraw()
 
 
@@ -320,6 +366,9 @@ func _draw() -> void:
 		_draw_body(radius)
 		_draw_type_details(radius)
 	if not visual_preview_only:
+		if burn_time > 0.0:
+			draw_circle(Vector2.ZERO, radius + 6.0, Color(1.0, 0.35, 0.08, 0.16))
+			draw_arc(Vector2.ZERO, radius + 7.0, -0.35, TAU - 0.35, 24, Color(1.0, 0.60, 0.14, 0.86), 2.0, true)
 		if slow_time > 0.0:
 			draw_circle(Vector2.ZERO, radius + 7.0, Color(0.45, 0.82, 1.0, 0.15))
 			draw_arc(Vector2.ZERO, radius + 8.0, 0.0, TAU, 24, Color(0.55, 0.92, 1.0, 0.85), 2.0, true)
@@ -331,11 +380,40 @@ func _draw() -> void:
 			draw_circle(Vector2(30.0, 0.0), 4.0, Color(1.0, 0.35, 0.12, 0.8))
 	if not _uses_sprite_visual():
 		_draw_outline(radius)
+		_draw_hit_flash_overlay(radius)
 
 	if not visual_preview_only:
 		var bar_position := Vector2(-16.0, -25.0)
 		draw_rect(Rect2(bar_position, Vector2(32.0, 6.0)), Color(0.05, 0.06, 0.06))
 		draw_rect(Rect2(bar_position + Vector2(1.0, 1.0), Vector2(30.0 * health_ratio, 4.0)), Color(0.25, 0.9, 0.35))
+
+
+func _draw_hit_flash_overlay(radius: float) -> void:
+	if _hit_flash_time <= 0.0:
+		return
+	var flash_ratio := clampf(_hit_flash_time / HIT_FLASH_DURATION, 0.0, 1.0)
+	var flash_color := Color(1.0, 1.0, 1.0, HIT_FLASH_MAX_ALPHA * flash_ratio)
+	var overlay_radius := radius + 2.0
+	match shape:
+		"square":
+			draw_rect(Rect2(Vector2(-overlay_radius, -overlay_radius), Vector2(overlay_radius * 2.0, overlay_radius * 2.0)), flash_color)
+		"diamond":
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(0.0, -overlay_radius * 1.15),
+				Vector2(overlay_radius * 1.15, 0.0),
+				Vector2(0.0, overlay_radius * 1.15),
+				Vector2(-overlay_radius * 1.15, 0.0),
+			]), flash_color)
+		"triangle":
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(0.0, -overlay_radius * 1.2),
+				Vector2(overlay_radius * 1.1, overlay_radius),
+				Vector2(-overlay_radius * 1.1, overlay_radius),
+			]), flash_color)
+		"hex":
+			draw_colored_polygon(_make_hex_points(overlay_radius), flash_color)
+		_:
+			draw_rect(Rect2(Vector2(-overlay_radius, -overlay_radius), Vector2(overlay_radius * 2.0, overlay_radius * 2.0)), flash_color)
 
 
 func _draw_contact_shadow(radius: float) -> void:
@@ -349,50 +427,72 @@ func _draw_contact_shadow(radius: float) -> void:
 
 
 func _setup_sprite_visual() -> void:
-	if enemy_type_id != "grunt" or _sprite != null:
+	if _sprite != null:
 		return
 
-	var frames := _get_enemy1_sprite_frames()
+	# 实体和图鉴共用这些 walk 帧；图鉴只应复用 AnimatedSprite2D/Texture，不要实例化带血条的 Enemy。
+	var frames := _get_enemy_sprite_frames(enemy_type_id)
 	if frames == null or frames.get_frame_count("walk") == 0:
 		return
 
 	_sprite = AnimatedSprite2D.new()
-	_sprite.name = "Enemy1AnimatedSprite"
+	_sprite.name = "EnemyAnimatedSprite"
+	_sprite.set_meta("enemy_type_id", enemy_type_id)
 	_sprite.sprite_frames = frames
 	_sprite.animation = "walk"
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var target_size := _get_enemy_sprite_target_size()
 	var first_texture := frames.get_frame_texture("walk", 0)
 	if first_texture != null:
 		var max_dimension := maxf(float(first_texture.get_width()), float(first_texture.get_height()))
 		if max_dimension > 0.0:
-			_sprite.scale = Vector2.ONE * (ENEMY1_TARGET_SIZE / max_dimension)
+			_sprite.scale = Vector2.ONE * (target_size / max_dimension)
 	_sprite.play("walk")
 	add_child(_sprite)
+	_create_sprite_hit_flash_overlay(maxf(body_radius + 5.0, target_size * 0.55))
 	_update_sprite_direction()
+	_sync_hit_flash_visual()
 
 
-func _get_enemy1_sprite_frames() -> SpriteFrames:
-	if _enemy1_sprite_frames_cache != null:
-		return _copy_enemy1_sprite_frames(_enemy1_sprite_frames_cache)
+func _get_enemy_sprite_target_size() -> float:
+	return maxf(ENEMY_SPRITE_MIN_TARGET_SIZE, body_radius * 2.0 + 8.0)
 
+
+func _get_enemy_sprite_frames(type_id: String) -> SpriteFrames:
+	var safe_type_id := type_id.strip_edges()
+	if not ENEMY_ANIMATED_TYPES.has(safe_type_id):
+		return null
+	if _enemy_sprite_frames_cache.has(safe_type_id):
+		return _copy_enemy_sprite_frames(_enemy_sprite_frames_cache[safe_type_id])
+
+	# 静态缓存只保存原始帧集合；对外返回副本，避免某个 AnimatedSprite 修改资源时污染其他敌人。
 	var frames := SpriteFrames.new()
 	frames.add_animation("walk")
 	frames.set_animation_loop("walk", true)
 	frames.set_animation_speed("walk", 8.0)
 
-	for frame_path in ENEMY1_WALK_FRAMES:
+	for frame_path in _get_enemy_walk_frame_paths(safe_type_id):
 		var texture := _load_png_texture(frame_path)
 		if texture == null:
 			push_warning("Enemy frame missing: " + frame_path)
 			continue
 		frames.add_frame("walk", texture)
 
-	_enemy1_sprite_frames_cache = frames
-	return _copy_enemy1_sprite_frames(_enemy1_sprite_frames_cache)
+	_enemy_sprite_frames_cache[safe_type_id] = frames
+	return _copy_enemy_sprite_frames(_enemy_sprite_frames_cache[safe_type_id])
 
 
-func _copy_enemy1_sprite_frames(frames: SpriteFrames) -> SpriteFrames:
+func _get_enemy_walk_frame_paths(type_id: String) -> Array[String]:
+	var frame_paths: Array[String] = []
+	if not ENEMY_ANIMATED_TYPES.has(type_id):
+		return frame_paths
+	for frame_index in range(1, ENEMY_WALK_FRAME_COUNT + 1):
+		frame_paths.append("res://assets/enemies/%s/walk_%02d.png" % [type_id, frame_index])
+	return frame_paths
+
+
+func _copy_enemy_sprite_frames(frames: SpriteFrames) -> SpriteFrames:
 	if frames == null:
 		return null
 	var frames_snapshot := frames.duplicate(true) as SpriteFrames
@@ -401,6 +501,35 @@ func _copy_enemy1_sprite_frames(frames: SpriteFrames) -> SpriteFrames:
 
 func _uses_sprite_visual() -> bool:
 	return _sprite != null and is_instance_valid(_sprite)
+
+
+func _create_sprite_hit_flash_overlay(radius: float) -> void:
+	if _sprite_hit_flash_overlay != null and is_instance_valid(_sprite_hit_flash_overlay):
+		_sprite_hit_flash_overlay.queue_free()
+	_sprite_hit_flash_overlay = Polygon2D.new()
+	_sprite_hit_flash_overlay.name = "EnemyHitFlashOverlay"
+	_sprite_hit_flash_overlay.polygon = _make_hit_flash_polygon(radius)
+	_sprite_hit_flash_overlay.color = Color(1.0, 1.0, 1.0, 0.0)
+	_sprite_hit_flash_overlay.visible = false
+	_sprite_hit_flash_overlay.z_index = 20
+	add_child(_sprite_hit_flash_overlay)
+
+
+func _make_hit_flash_polygon(radius: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in range(24):
+		var angle := TAU * float(index) / 24.0
+		points.append(Vector2(cos(angle) * radius * 0.9, sin(angle) * radius * 1.05).snapped(Vector2.ONE))
+	return points
+
+
+func _sync_hit_flash_visual() -> void:
+	var flash_ratio := clampf(_hit_flash_time / HIT_FLASH_DURATION, 0.0, 1.0) if _hit_flash_time > 0.0 else 0.0
+	if _uses_sprite_visual():
+		_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0).lerp(Color(1.7, 1.7, 1.7, 1.0), flash_ratio)
+	if _sprite_hit_flash_overlay != null and is_instance_valid(_sprite_hit_flash_overlay):
+		_sprite_hit_flash_overlay.visible = flash_ratio > 0.0
+		_sprite_hit_flash_overlay.color = Color(1.0, 1.0, 1.0, HIT_FLASH_MAX_ALPHA * flash_ratio)
 
 
 func _set_move_direction(direction: Vector2) -> void:
@@ -428,6 +557,10 @@ func _update_sprite_direction() -> void:
 
 
 func _load_png_texture(resource_path: String) -> Texture2D:
+	if ResourceLoader.exists(resource_path):
+		var loaded_resource := ResourceLoader.load(resource_path)
+		if loaded_resource is Texture2D:
+			return loaded_resource as Texture2D
 	var image := Image.load_from_file(resource_path)
 	if image == null:
 		image = Image.load_from_file(ProjectSettings.globalize_path(resource_path))
@@ -615,5 +748,3 @@ func _draw_taunt_details(radius: float) -> void:
 	draw_arc(Vector2.ZERO, radius * 1.10, PI * 0.15, PI * 1.85, 28, Color(signal_color.r, signal_color.g, signal_color.b, 0.62), 2.0, true)
 	draw_line(Vector2(-radius * 0.36, -radius * 0.12), Vector2(radius * 0.36, -radius * 0.12), signal_color, 3.0, true)
 	draw_line(Vector2(-radius * 0.36, radius * 0.18), Vector2(radius * 0.36, radius * 0.18), signal_color, 3.0, true)
-
-

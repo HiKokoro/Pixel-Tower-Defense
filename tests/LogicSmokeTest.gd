@@ -52,6 +52,11 @@ func _run() -> void:
 	}], [])
 	_assert(ui_init_probe.start_wave_button.disabled, "Standalone UI setup should initialize the start-wave button as disabled.")
 	_assert(ui_init_probe.start_wave_button.mouse_default_cursor_shape == Control.CURSOR_ARROW, "Standalone UI setup should initialize the start-wave button with the default cursor.")
+	var hud_top_bar := ui_init_probe.ui_root.get_node_or_null("HudTopBarTexture") as TextureRect
+	_assert(hud_top_bar != null and hud_top_bar.texture != null, "顶部状态栏必须使用预绘制贴图，不能回退到代码画面板。")
+	for hud_status_name in ["HudGoldStatusTexture", "HudHealthStatusTexture", "HudLevelStatusTexture", "HudWaveStatusTexture"]:
+		var hud_status_texture := ui_init_probe.ui_root.get_node_or_null(hud_status_name) as TextureRect
+		_assert(hud_status_texture != null and hud_status_texture.texture != null, "每个 HUD 状态槽都必须加载预绘制贴图：" + hud_status_name)
 	_assert(ui_init_probe.build_tower_button.disabled, "Standalone UI setup should initialize the build menu button as disabled.")
 	_assert(ui_init_probe.build_tower_button.mouse_default_cursor_shape == Control.CURSOR_ARROW, "Standalone UI setup should initialize the build menu button with the default cursor.")
 	_assert(ui_init_probe._build_option_buttons.size() == 1 and ui_init_probe._build_option_buttons[0].disabled, "Standalone UI setup should initialize detailed tower options as disabled.")
@@ -62,6 +67,19 @@ func _run() -> void:
 	_assert(not ui_init_probe.has_method("_on_reward_card_use_pressed"), "Card UI should not keep the removed click-to-use reward-card callback.")
 	_assert(not ui_init_probe.has_method("animate_card_consumed"), "Card UI should not expose the removed standalone card-consume animation entry.")
 	_assert(not ui_init_probe.has_method("_play_card_used_animation"), "Card UI should not keep the removed standalone card-used animation callback.")
+	_assert(is_equal_approx(ui_init_probe._get_card_area_preview_radius({"radius": 92.0}), 184.0), "Card drag range preview should scale legacy 32px radii to the 64px world.")
+	_assert(is_equal_approx(ui_init_probe._get_card_area_preview_radius({"radius": 360.0}), GameUI.CARD_AREA_PREVIEW_MAX_RADIUS), "Card drag range preview should clamp very large scaled radii instead of shrinking to the default.")
+	ui_init_probe.set_world_view_scale(0.5)
+	_assert(is_equal_approx(ui_init_probe._get_card_area_preview_radius({"radius": 92.0}), 92.0), "Card drag range preview should convert the real world radius to screen pixels when the camera is zoomed out.")
+	ui_init_probe.set_world_view_scale(1.0)
+	var ui_branch_tower_probe := Tower.new()
+	ui_branch_tower_probe.setup(null, Vector2i.ZERO, {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
+	ui_branch_tower_probe.upgrade()
+	ui_init_probe.show_tower_panel(ui_branch_tower_probe)
+	_assert(ui_init_probe.fire_upgrade_button.visible and ui_init_probe.ice_upgrade_button.visible, "Tower panel should show fire and ice branch buttons for level-2 basic towers.")
+	_assert(not ui_init_probe.upgrade_button.visible, "Tower panel should hide the generic upgrade button while choosing a basic branch.")
+	_assert(ui_init_probe.fire_upgrade_button.text.contains("火塔") and ui_init_probe.ice_upgrade_button.text.contains("冰塔"), "Branch upgrade buttons should use localized element labels.")
+	ui_branch_tower_probe.queue_free()
 	ui_init_probe.queue_free()
 	await process_frame
 
@@ -73,13 +91,35 @@ func _run() -> void:
 	var build_grid_probe := BuildManager.new()
 	_assert(build_grid_probe.grid_to_center(Vector2i(0, 0)) == Vector2(32.0, 96.0), "64px格子的第一格中心应位于炮塔模型中心。")
 	_assert(build_grid_probe.world_to_grid(Vector2(63.0, 127.0)) == Vector2i(0, 0), "64px格子边界内的坐标应仍属于第一格。")
+	_assert(is_equal_approx(Main.WORLD_RANGE_SCALE, 2.0), "主逻辑范围缩放应从旧32px网格同步到64px网格。")
+	_assert(is_equal_approx(Tower.WORLD_RANGE_SCALE, 2.0), "炮塔范围缩放应从旧32px网格同步到64px网格。")
+	_assert(is_equal_approx(Tower.BASE_RANGE, 260.0), "基础炮塔射程应保持旧32px网格下的覆盖格数。")
+	_assert(is_equal_approx(build_grid_probe._get_selected_tower_range({"range": 130.0}), 260.0), "建造预览射程应显示缩放后的实际世界范围。")
+	var range_tower_probe := Tower.new()
+	range_tower_probe.setup(main_init_probe, Vector2i(0, 0), {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
+	_assert(is_equal_approx(range_tower_probe.attack_range, 260.0), "炮塔运行时射程应按64px网格放大。")
+	range_tower_probe.setup(main_init_probe, Vector2i(0, 0), {"id": "cannon", "name": "重炮塔", "damage": 32, "range": 115.0, "interval": 1.25, "splash_radius": 56.0})
+	_assert(is_equal_approx(range_tower_probe.attack_range, 230.0), "重炮塔运行时射程应按64px网格放大。")
+	_assert(is_equal_approx(range_tower_probe.splash_radius, 112.0), "重炮塔溅射范围应按64px网格放大。")
+	range_tower_probe.queue_free()
+	_assert(is_equal_approx(main_init_probe._scale_world_range(108.0), 216.0), "精英死亡眩晕半径应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_missile_card_radius({"radius": Main.MISSILE_CARD_DEFAULT_RADIUS}), 184.0), "导弹卡牌半径应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_cryo_card_radius({"radius": Main.CRYO_CARD_DEFAULT_RADIUS}), 208.0), "冷冻卡牌半径应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_bait_beacon_card_radius({"radius": Main.BAIT_BEACON_DEFAULT_RADIUS}), 300.0), "诱饵信标范围应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_time_warp_card_radius({"radius": Main.TIME_WARP_DEFAULT_RADIUS}), 236.0), "时间裂隙范围应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_tower_swap_card_radius({"radius": Main.TOWER_SWAP_DEFAULT_RADIUS}), 144.0), "塔位调度范围应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_bounty_mark_card_radius({"radius": Main.BOUNTY_MARK_DEFAULT_RADIUS}), 260.0), "悬赏标记范围应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_road_spike_card_radius({"radius": Main.ROAD_SPIKE_DEFAULT_RADIUS}), 104.0), "尖刺路障触发半径应按64px网格放大。")
+	_assert(is_equal_approx(main_init_probe._get_road_spike_trap_radius({"radius": 440.0}), 440.0), "已存入陷阱的实际世界半径不应被旧32px上限重新压回默认值。")
 	build_grid_probe.queue_free()
 	main_init_probe.queue_free()
 	var tower_text_probe := Tower.new()
 	_assert(tower_text_probe._format_upgrade_preview_text(2, "强化核心") == "等级2：强化核心", "Tower upgrade preview formatter should use localized text.")
 	_assert(tower_text_probe._format_augmentation_trait_line_text("增幅塔") == "\n增幅：增幅塔", "Tower augmentation formatter should use localized text.")
 	_assert(tower_text_probe._format_basic_level_two_trait_text() == "强化核心：射程扩大，装填加快", "Basic tower level-2 trait helper should use localized text.")
-	_assert(tower_text_probe._format_basic_level_three_trait_text() == "过载中枢：高伤害高射程均衡压制", "Basic tower level-3 trait helper should use localized text.")
+	_assert(tower_text_probe._format_basic_level_three_trait_text() == "元素分支：可分支为持续灼烧或寒霜减速", "Basic tower level-3 branch helper should use localized text.")
+	_assert(tower_text_probe._format_basic_fire_trait_text() == "火塔：命中后造成持续烧伤", "Basic fire branch trait helper should use localized text.")
+	_assert(tower_text_probe._format_basic_ice_trait_text() == "冰塔：命中后降低敌人移动速度", "Basic ice branch trait helper should use localized text.")
 	_assert(tower_text_probe._format_rapid_level_two_trait_text() == "双联枪管：每次攻击发射两枚弹丸", "Rapid tower level-2 trait helper should use localized text.")
 	_assert(tower_text_probe._format_rapid_level_three_trait_text() == "三联齐射：三枚弹丸形成高速弹幕", "Rapid tower level-3 trait helper should use localized text.")
 	_assert(tower_text_probe._format_shotgun_level_two_trait_text() == "扩容弹仓：更宽扇形和更多弹丸", "Shotgun tower level-2 trait helper should use localized text.")
@@ -88,6 +128,49 @@ func _run() -> void:
 	_assert(tower_text_probe._format_cannon_level_three_trait_text() == "震荡核心：大范围高强度溅射炮击", "Cannon tower level-3 trait helper should use localized text.")
 	_assert(tower_text_probe._format_sniper_level_two_trait_text() == "校准透镜：极大提高单发伤害和射程", "Sniper tower level-2 trait helper should use localized text.")
 	_assert(tower_text_probe._format_sniper_level_three_trait_text() == "处决射击：对低生命敌人造成致命伤害", "Sniper tower level-3 trait helper should use localized text.")
+	var fire_branch_tower := Tower.new()
+	fire_branch_tower.setup(null, Vector2i.ZERO, {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
+	_assert(fire_branch_tower.upgrade(), "Basic tower should still upgrade to level 2 normally.")
+	_assert(fire_branch_tower.can_choose_basic_branch(), "Basic tower level 2 should expose the fire/ice branch choice.")
+	_assert(fire_branch_tower.get_upgrade_preview().contains("火塔") and fire_branch_tower.get_upgrade_preview().contains("冰塔"), "Basic tower branch preview should mention both choices.")
+	_assert(fire_branch_tower.upgrade(Tower.BASIC_FIRE_BRANCH_ID), "Basic tower should upgrade into the fire branch.")
+	_assert(fire_branch_tower.basic_branch == Tower.BASIC_FIRE_BRANCH_ID and fire_branch_tower.burn_damage_per_tick > 0, "Fire branch should store burn combat parameters.")
+	_assert(fire_branch_tower.tower_color.r > fire_branch_tower.tower_color.b, "Fire branch tower palette should be warm.")
+	var ice_branch_tower := Tower.new()
+	ice_branch_tower.setup(null, Vector2i.ZERO, {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
+	_assert(ice_branch_tower.upgrade() and ice_branch_tower.upgrade(Tower.BASIC_ICE_BRANCH_ID), "Basic tower should upgrade into the ice branch.")
+	_assert(ice_branch_tower.basic_branch == Tower.BASIC_ICE_BRANCH_ID and ice_branch_tower.ice_slow_multiplier < 1.0, "Ice branch should store slow combat parameters.")
+	_assert(ice_branch_tower.tower_color.b > ice_branch_tower.tower_color.r, "Ice branch tower palette should be cold.")
+	var burn_enemy_probe := Enemy.new()
+	burn_enemy_probe.health = 40
+	burn_enemy_probe.max_health = 40
+	var burn_projectile_probe := Projectile.new()
+	burn_projectile_probe.setup(burn_enemy_probe, 0)
+	burn_projectile_probe.setup_status_effect({
+		"id": Tower.BASIC_FIRE_BRANCH_ID,
+		"burn_damage_per_tick": 5,
+		"burn_tick_interval": 0.1,
+		"burn_duration": 0.3,
+	})
+	burn_projectile_probe._apply_impact_damage(Vector2.ZERO)
+	burn_enemy_probe._process(0.11)
+	_assert(burn_enemy_probe.health == 35 and burn_enemy_probe.burn_time > 0.0, "Fire branch projectiles should apply burn damage over time.")
+	var slow_enemy_probe := Enemy.new()
+	var slow_projectile_probe := Projectile.new()
+	slow_projectile_probe.setup(slow_enemy_probe, 0)
+	slow_projectile_probe.setup_status_effect({
+		"id": Tower.BASIC_ICE_BRANCH_ID,
+		"slow_multiplier": 0.52,
+		"slow_duration": 2.0,
+	})
+	slow_projectile_probe._apply_impact_damage(Vector2.ZERO)
+	_assert(slow_enemy_probe.speed_multiplier < 1.0 and slow_enemy_probe.slow_time > 0.0, "Ice branch projectiles should reduce enemy movement speed.")
+	fire_branch_tower.queue_free()
+	ice_branch_tower.queue_free()
+	burn_enemy_probe.queue_free()
+	slow_enemy_probe.queue_free()
+	burn_projectile_probe.queue_free()
+	slow_projectile_probe.queue_free()
 	tower_text_probe.queue_free()
 
 	var game := main_scene.instantiate() as Main
@@ -304,8 +387,18 @@ func _run() -> void:
 	var cached_pebble_rects: Array = game.map_layer.get("_cached_pebble_rects")
 	var cached_grid_lines: PackedVector2Array = game.map_layer.get("_cached_grid_lines")
 	var cached_road_edge_rects: Array = game.map_layer.get("_cached_road_edge_rects")
+	var cached_road_connection_masks: Dictionary = game.map_layer.get("_cached_road_connection_masks")
+	var cached_decorations: Array = game.map_layer.get("_cached_decorations")
+	var decoration_texture_sets: Array = game.map_layer.get("_decoration_texture_sets")
 	_assert(cached_road_cells.size() == game.road_cells.size(), "Map renderer should cache road cells for static drawing.")
 	_assert(cached_route_paths.size() == game.spawn_paths.size(), "Map renderer should cache route polylines for static drawing.")
+	_assert(not cached_road_connection_masks.is_empty(), "Map renderer should cache visual road connections from spawn-route topology.")
+	_assert(_map_renderer_road_masks_match_spawn_paths(game), "Map renderer road connections should follow actual enemy routes, not neighboring road tiles.")
+	_assert(game.map_layer.get("_spawn_gate_texture") != null, "Map renderer should load the themed spawn gate texture.")
+	_assert(game.world_decal_layer.get("_base_texture") != null, "World decal renderer should load the themed base texture.")
+	_assert(decoration_texture_sets.size() >= 2, "Map renderer should load at least two decoration texture sets for each map theme.")
+	_assert(not cached_decorations.is_empty(), "Map renderer should distribute themed decorations on the map.")
+	_assert(_map_renderer_decorations_avoid_roads(game), "Map renderer decorations should never be placed on road cells.")
 	_assert(cached_ground_rects.size() == game.map_cols * game.map_rows, "Map renderer should cache one ground rect per map tile.")
 	_assert(cached_ground_colors.size() == cached_ground_rects.size(), "Map renderer should cache ground tile colors alongside rects.")
 	_assert(not cached_pebble_rects.is_empty(), "Map renderer should cache decorative ground pebble rects.")
@@ -355,29 +448,6 @@ func _run() -> void:
 	_assert(is_equal_approx(float(impact_effect_probe.get("radius")), 64.0), "Impact effect helper should preserve the requested visual radius.")
 	await create_timer(0.16).timeout
 	_assert(not is_instance_valid(impact_effect_probe), "Impact effect nodes should self-clean after their duration.")
-	var ui_particle_config: Dictionary = game.ui._ui_particle_config
-	game.ui._spawn_ui_particles(Vector2(24.0, 24.0), Color(0.24, 0.76, 0.72), 5, 20.0, "UIParticleCacheProbe")
-	_assert(is_same(ui_particle_config, game.ui._ui_particle_config), "UI particles should reuse a cached config dictionary.")
-	_assert(str(game.ui._ui_particle_config.get("name", "")) == "UIParticleCacheProbe", "UI particle config should update the effect name.")
-	_assert(int(game.ui._ui_particle_config.get("amount", 0)) == 5, "UI particle config should update the amount.")
-	game.ui._spawn_ui_particles(Vector2(24.0, 24.0), Color(0.42, 1.0, 0.62), 42, 72.0, "LevelClearParticles")
-	var level_clear_ui_lifetime := float(game.ui._ui_particle_config.get("lifetime", 0.0))
-	var level_clear_ui_gravity: Vector2 = game.ui._ui_particle_config.get("gravity", Vector2.ZERO)
-	_assert(game.ui._ui_particle_config.get("direction") == Vector2.UP, "Level clear UI particles should rise like a celebration.")
-	_assert(level_clear_ui_gravity.y < 0.0, "Level clear UI particles should not use the default falling burst.")
-	game.ui._spawn_ui_particles(Vector2(24.0, 24.0), Color(0.88, 0.22, 0.18), 18, 28.0, "CardDiscardParticles")
-	var discard_ui_gravity: Vector2 = game.ui._ui_particle_config.get("gravity", Vector2.ZERO)
-	_assert(game.ui._ui_particle_config.get("direction") == Vector2.DOWN, "Discard UI particles should fall away from the hand.")
-	_assert(discard_ui_gravity.y > 0.0, "Discard UI particles should use downward gravity.")
-	_assert(not is_equal_approx(float(game.ui._ui_particle_config.get("lifetime", 0.0)), level_clear_ui_lifetime), "Discard and level-clear particles should use different timing.")
-	game.ui._spawn_ui_particles(Vector2(24.0, 24.0), Color(0.38, 0.95, 0.54), 86, 150.0, "VictoryOverlayParticles")
-	_assert(game.ui._ui_particle_config.get("direction") == Vector2.UP, "Victory overlay particles should lift upward.")
-	game.ui._spawn_ui_particles(Vector2(24.0, 24.0), Color(1.0, 0.28, 0.18), 86, 150.0, "DefeatOverlayParticles")
-	_assert(game.ui._ui_particle_config.get("direction") == Vector2.DOWN, "Defeat overlay particles should collapse downward.")
-	for ui_particle in game.ui.ui_root.get_children():
-		if ui_particle is CPUParticles2D:
-			ui_particle.queue_free()
-	await process_frame
 	var muzzle_config: Dictionary = game._muzzle_particle_config
 	game.spawn_muzzle_particles(Vector2(12.0, 12.0), Vector2.RIGHT, Color(0.32, 0.60, 0.86))
 	_assert(is_same(muzzle_config, game._muzzle_particle_config), "Muzzle particles should reuse a cached config dictionary.")
@@ -509,6 +579,7 @@ func _run() -> void:
 	_assert(not game.ui.start_overlay.visible, "Selecting a level should hide start overlay.")
 	_assert(game.current_level_index == 2, "Selecting level 3 should load level 3.")
 	_assert(game.gold == int(game.level_configs[2].get("start_gold", 0)), "Selected levels should use their own starting gold.")
+	_assert(is_equal_approx(game.camera.zoom.x, game._get_min_camera_zoom()), "Selecting a level should start at the maximum overview camera distance.")
 	var selected_level_save := _read_level_start_save_for_test()
 	_assert(bool(selected_level_save.get("has_save", false)) and int(selected_level_save.get("level_index", -1)) == 2, "Selecting a level should save that level's initial state for Continue Game.")
 	_assert(int(selected_level_save.get("gold", -1)) == game.gold, "Level-start save should capture the selected level starting gold.")
@@ -558,6 +629,13 @@ func _run() -> void:
 	_assert(not game.ui.continue_game_button.disabled, "Creating a level-start save should enable Continue Game on the start overlay.")
 	_assert(game.ui.start_wave_button.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND, "Enabled start-wave button should use the pointing cursor.")
 	_assert(game.ui.build_tower_button.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND, "Enabled build button should use the pointing cursor.")
+	_assert(game.build_sfx_player != null, "主场景应创建建塔音效播放器。")
+	var build_sfx_stream := game.build_sfx_player.stream as AudioStreamWAV
+	_assert(build_sfx_stream != null and build_sfx_stream.data.size() > 0, "建塔音效应使用程序生成的WAV数据。")
+	_assert(game.ui_click_sfx_player != null, "主场景应创建按钮点击音效播放器。")
+	var ui_click_sfx_stream := game.ui_click_sfx_player.stream as AudioStreamWAV
+	_assert(ui_click_sfx_stream != null and ui_click_sfx_stream.data.size() > 0, "按钮点击音效应使用程序生成的WAV数据。")
+	_assert(game.ui.start_wave_button.pressed.is_connected(Callable(game, "_on_ui_button_pressed_for_sound")), "按钮点击应统一绑定点击音效。")
 	_assert(game.ui._build_option_buttons.size() == game.get_tower_configs().size(), "Build UI should cache tower option buttons for enabled-state updates.")
 	_assert(game.ui.build_options_scroll != null and game.ui.build_options_container.get_parent() == game.ui.build_options_scroll, "Expanded build options should be inside a horizontal scroll container.")
 	_assert(game.ui.build_options_scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_AUTO, "Expanded build options should support horizontal scrolling.")
@@ -727,6 +805,13 @@ func _run() -> void:
 	)
 	_assert(game.ui._status_text_write_count == status_writes_before + 1, "Status UI should update only changed labels.")
 	_assert(game.ui.gold_label.text == gold_label_before, "Message-only status updates should not rewrite the gold label text.")
+	_assert(game.ui.message_label.position == GameUI.STATUS_MESSAGE_POSITION, "Status tips should appear near the lower middle instead of the top-right corner.")
+	_assert(game.ui.message_label.size == GameUI.STATUS_MESSAGE_SIZE and game.ui.message_label.size.y <= 32.0, "Status tips should stay compact like floating text instead of occupying a large panel.")
+	_assert(not game.ui.message_label.has_theme_stylebox_override("normal"), "Status tips should float as text without a custom large background panel.")
+	_assert(game.ui.message_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER, "Status tips should be centered for easier reading.")
+	_assert(game.ui.message_label.visible and is_equal_approx(game.ui.message_label.modulate.a, 1.0), "New status tips should appear fully visible before fading.")
+	game.ui._process(GameUI.STATUS_MESSAGE_HOLD_TIME + GameUI.STATUS_MESSAGE_FADE_TIME + 0.05)
+	_assert(not game.ui.message_label.visible and is_equal_approx(game.ui.message_label.modulate.a, 0.0), "Status tips should gradually fade out after being shown.")
 
 	var pause_key := InputEventKey.new()
 	pause_key.keycode = KEY_ESCAPE
@@ -990,6 +1075,19 @@ func _run() -> void:
 	_assert(not is_instance_valid(fire_enemy) or fire_enemy.health <= 55, "Firestorm card should damage or defeat enemies across the map.")
 	game._clear_enemies_and_projectiles()
 
+	var fire_burn_enemy := game._spawn_enemy("grunt", 220, 0.0, 0, 0.0, 0)
+	await process_frame
+	var firestorm_burn_card := game._make_debug_reward_card("firestorm")
+	firestorm_burn_card["damage"] = 10
+	firestorm_burn_card["burn_damage_per_tick"] = 7
+	firestorm_burn_card["burn_tick_interval"] = 0.1
+	firestorm_burn_card["burn_duration"] = 0.4
+	game._add_card_to_hand_or_pending(firestorm_burn_card)
+	game._on_reward_card_play_requested(game._card_hand.size() - 1, game.world_to_screen(fire_burn_enemy.global_position))
+	await create_timer(0.15).timeout
+	_assert(is_instance_valid(fire_burn_enemy) and fire_burn_enemy.burn_time > 0.0 and fire_burn_enemy.health <= 203, "Firestorm card should apply the same burn-over-time status as fire towers.")
+	game._clear_enemies_and_projectiles()
+
 	var freeze_enemy := game._spawn_enemy("runner", 100, 120.0, 0, 0.0, 0)
 	await process_frame
 	game._add_card_to_hand_or_pending(game._make_debug_reward_card("freeze"))
@@ -1158,7 +1256,9 @@ func _run() -> void:
 
 	var build_manager := game.build_manager
 	var invalid_road_tile := Vector2i(0, 7)
-	var valid_tile := Vector2i(1, 1)
+	var decoration_build_tile := _find_buildable_decoration_cell(game)
+	var valid_tile := decoration_build_tile if decoration_build_tile != Vector2i(-1, -1) else Vector2i(1, 1)
+	var valid_tile_had_decoration := decoration_build_tile != Vector2i(-1, -1)
 	_assert(build_manager._get_tower_display_name({"name": "  建造测试塔  "}) == "建造测试塔", "Build manager tower display helper should trim configured names.")
 	_assert(build_manager._get_tower_display_name({"name": ""}) == "防御塔", "Build manager tower display helper should use a localized fallback name.")
 	_assert(build_manager._get_default_tower_display_name() == "防御塔", "Build manager default tower display-name helper should use localized text.")
@@ -1191,7 +1291,10 @@ func _run() -> void:
 	var built := build_manager.try_build_at(build_manager.grid_to_center(valid_tile))
 	await process_frame
 	_assert(built, "Basic tower should build on a valid tile.")
+	if valid_tile_had_decoration:
+		_assert(not game.map_layer.call("has_decoration_at", valid_tile), "Building a tower on a decoration tile should destroy that decoration.")
 	_assert(_count_particles(game.particle_layer) > 0, "Building a tower should spawn build particles.")
+	_assert(game.build_sfx_player.stream != null, "成功建造炮塔后建塔音效流应仍然可用。")
 	_assert(game.gold == console_gold_before + 25 - 50, "Building basic tower should spend its cost.")
 	_assert(game.tower_layer.get_child_count() == 1, "Tower layer should contain one tower.")
 	_assert(game.get_active_towers().size() == 1, "Built towers should be tracked in the active tower cache.")
@@ -1209,7 +1312,7 @@ func _run() -> void:
 	_assert(basic_tower._get_max_level_preview_text() == "已达到最终形态", "Tower max-level preview helper should use localized text.")
 	_assert(basic_tower._format_upgrade_preview_text(2, "强化核心") == "等级2：强化核心", "Tower upgrade preview formatter should use localized text.")
 	_assert(basic_tower._get_upgrade_preview_trait_name("basic", 2) == "强化核心", "Tower basic level-2 preview trait helper should use localized text.")
-	_assert(basic_tower._get_upgrade_preview_trait_name("basic", 3) == "过载中枢", "Tower basic level-3 preview trait helper should use localized text.")
+	_assert(basic_tower._get_upgrade_preview_trait_name("basic", 3) == "元素分支", "Tower basic level-3 preview trait helper should use localized text.")
 	_assert(basic_tower._get_upgrade_preview_trait_name("rapid", 2) == "双联枪管", "Tower rapid level-2 preview trait helper should use localized text.")
 	_assert(basic_tower._get_upgrade_preview_trait_name("rapid", 3) == "三联齐射", "Tower rapid level-3 preview trait helper should use localized text.")
 	_assert(basic_tower._get_upgrade_preview_trait_name("cannon", 2) == "爆破弹头", "Tower cannon level-2 preview trait helper should use localized text.")
@@ -1224,7 +1327,7 @@ func _run() -> void:
 	_assert(basic_tower._get_base_trait_text("sniper") == "超远距离点杀", "Tower sniper base trait helper should use localized text.")
 	_assert(basic_tower._get_base_trait_text("basic") == "均衡防御火力", "Tower basic base trait helper should use localized text.")
 	_assert(basic_tower._format_basic_level_two_trait_text() == "强化核心：射程扩大，装填加快", "Tower basic level-2 trait formatter should use localized text.")
-	_assert(basic_tower._format_basic_level_three_trait_text() == "过载中枢：高伤害高射程均衡压制", "Tower basic level-3 trait formatter should use localized text.")
+	_assert(basic_tower._format_basic_level_three_trait_text() == "元素分支：可分支为持续灼烧或寒霜减速", "Tower basic level-3 trait formatter should use localized text.")
 	_assert(basic_tower._format_rapid_level_two_trait_text() == "双联枪管：每次攻击发射两枚弹丸", "Tower rapid level-2 trait formatter should use localized text.")
 	_assert(basic_tower._format_rapid_level_three_trait_text() == "三联齐射：三枚弹丸形成高速弹幕", "Tower rapid level-3 trait formatter should use localized text.")
 	_assert(basic_tower._format_shotgun_level_two_trait_text() == "扩容弹仓：更宽扇形和更多弹丸", "Tower shotgun level-2 trait formatter should use localized text.")
@@ -1301,7 +1404,7 @@ func _run() -> void:
 	build_manager.enter_build_mode("sniper")
 	var sniper_tile := Vector2i(2, 1)
 	_assert(build_manager._selected_tower_cost == int(game.get_tower_config("sniper").get("cost", 0)), "Build manager should cache selected tower cost.")
-	_assert(is_equal_approx(build_manager._selected_tower_range, float(game.get_tower_config("sniper").get("range", 0.0))), "Build manager should cache selected tower range.")
+	_assert(is_equal_approx(build_manager._selected_tower_range, Tower.scale_world_range(float(game.get_tower_config("sniper").get("range", 0.0)))), "Build manager should cache selected tower range as scaled world units.")
 	var blocked_by_gold := build_manager.try_build_at(build_manager.grid_to_center(sniper_tile))
 	await process_frame
 	_assert(not blocked_by_gold, "Expensive tower should fail without enough gold.")
@@ -1427,6 +1530,26 @@ func _run() -> void:
 	cannon_upgrade_test.upgrade()
 	_assert(cannon_upgrade_test.splash_radius >= 96.0 and cannon_upgrade_test.splash_damage_ratio >= 0.78, "Cannon tower level 3 should deliver a substantially larger splash zone.")
 	_assert(cannon_upgrade_test._effective_splash_damage == int(round(float(cannon_upgrade_test.damage) * cannon_upgrade_test.splash_damage_ratio * cannon_upgrade_test.damage_multiplier)), "Tower upgrades should refresh cached splash damage.")
+	game._clear_enemies_and_projectiles()
+	await process_frame
+	var cannon_range_target := game._spawn_enemy("brute", 200, 0.0, 0, 0.0, 0)
+	var cannon_range_neighbor := game._spawn_enemy("brute", 200, 0.0, 0, 0.0, 0)
+	await process_frame
+	cannon_range_target.global_position = Vector2(320.0, 220.0)
+	cannon_range_neighbor.global_position = Vector2(250.0, 220.0)
+	cannon_range_target.health = 200
+	cannon_range_neighbor.health = 200
+	var cannon_range_shell := Projectile.new()
+	cannon_range_shell.global_position = Vector2(100.0, 220.0)
+	cannon_range_shell.setup(cannon_range_target, 100, 1000.0, 60.0, 40, Color(1.0, 0.54, 0.18), 0, Vector2.RIGHT, 120.0, Projectile.VISUAL_CANNON)
+	game.add_projectile(cannon_range_shell)
+	cannon_range_shell._process(0.5)
+	_assert(cannon_range_shell.is_queued_for_deletion(), "Cannon shells should auto-detonate when reaching max range without hitting an enemy.")
+	_assert(is_equal_approx(cannon_range_shell.global_position.x, 220.0), "Cannon max-range detonation should happen at the exact range endpoint, not after overshooting.")
+	_assert(cannon_range_target.health == 200, "Cannon max-range detonation should not directly hit enemies beyond max range.")
+	_assert(cannon_range_neighbor.health == 160, "Cannon max-range detonation should apply splash damage around the range endpoint.")
+	game._clear_enemies_and_projectiles()
+	await process_frame
 
 	var basic_recoil_test := Tower.new()
 	var rapid_recoil_test := Tower.new()
@@ -1617,16 +1740,22 @@ func _run() -> void:
 	await process_frame
 	_assert(game.get_active_enemies().is_empty(), "Clearing combat nodes should clear the active enemy cache.")
 
-	var grunt := Enemy.new()
-	grunt.setup(game.path_points, 50, 70.0, 10, game.enemy_type_configs["grunt"])
-	game.enemy_layer.add_child(grunt)
-	await process_frame
-	var grunt_sprite := grunt.get_node_or_null("Enemy1AnimatedSprite") as AnimatedSprite2D
-	_assert(grunt_sprite != null, "Grunt enemy should use the enemy1 animated sprite.")
-	_assert(grunt_sprite.sprite_frames.get_frame_count("walk") == 4, "Enemy1 sprite should have four walk frames.")
-	_assert(grunt_sprite.is_playing(), "Enemy1 walk animation should play while active.")
-	grunt.queue_free()
-	await process_frame
+	for animated_enemy_type in Enemy.ENEMY_ANIMATED_TYPES:
+		var animated_enemy := Enemy.new()
+		animated_enemy.setup(game.path_points, 50, 70.0, 10, game.enemy_type_configs[animated_enemy_type])
+		game.enemy_layer.add_child(animated_enemy)
+		await process_frame
+		var enemy_sprite := animated_enemy.get_node_or_null("EnemyAnimatedSprite") as AnimatedSprite2D
+		_assert(enemy_sprite != null, animated_enemy_type + " enemy should use its generated animated sprite.")
+		_assert(enemy_sprite.sprite_frames.get_frame_count("walk") == Enemy.ENEMY_WALK_FRAME_COUNT, animated_enemy_type + " sprite should have four walk frames.")
+		_assert(enemy_sprite.is_playing(), animated_enemy_type + " walk animation should play while active.")
+		_assert(str(enemy_sprite.get_meta("enemy_type_id", "")) == animated_enemy_type, animated_enemy_type + " sprite should keep the enemy type metadata.")
+		var first_frame_texture := enemy_sprite.sprite_frames.get_frame_texture("walk", 0)
+		_assert(first_frame_texture != null, animated_enemy_type + " sprite should expose the first generated frame texture.")
+		if first_frame_texture != null and not first_frame_texture.resource_path.is_empty():
+			_assert(first_frame_texture.resource_path.contains("assets/enemies/" + animated_enemy_type + "/"), animated_enemy_type + " sprite should load frames from the generated enemy asset folder.")
+		animated_enemy.queue_free()
+		await process_frame
 	var fallback_enemy := Enemy.new()
 	fallback_enemy.setup(game.path_points, 50, 70.0, 10, {})
 	_assert(fallback_enemy.enemy_name == "步兵", "Enemy display-name fallback should be localized.")
@@ -1685,9 +1814,11 @@ func _run() -> void:
 	_assert(game.ui.level_clear_panel.position == Vector2(304.0, 92.0), "Level clear panel should settle on its final position.")
 	_assert(is_equal_approx(game.ui.level_clear_panel.modulate.a, 1.0), "Level clear panel should settle on full opacity.")
 
+	game.camera.zoom = Vector2.ONE * Main.CAMERA_MAX_ZOOM
 	game.ui._on_next_level_pressed()
 	await process_frame
 	_assert(game.current_level_index == 1, "Next Level should load level 2.")
+	_assert(is_equal_approx(game.camera.zoom.x, game._get_min_camera_zoom()), "Entering the next level should reset the camera to the maximum overview distance.")
 	var next_level_save := _read_level_start_save_for_test()
 	_assert(int(next_level_save.get("level_index", -1)) == 1, "Next Level should save the newly entered level's initial state for Continue Game.")
 	_assert(int(next_level_save.get("gold", -1)) == game.gold, "Next Level save should capture carried starting gold for the new level.")
@@ -1705,9 +1836,11 @@ func _run() -> void:
 	_assert(game.spawn_paths[0][0] != game.spawn_paths[1][0], "Level 2 routes should start from different spawn points.")
 	_assert(game.spawn_paths[0][1] != game.spawn_paths[1][1], "Level 2 routes should preserve distinct branch paths.")
 
+	game.camera.zoom = Vector2.ONE * Main.CAMERA_MAX_ZOOM
 	game._execute_console_command("level 3")
 	await process_frame
 	_assert(game.current_level_index == 2, "Console should load level 3.")
+	_assert(is_equal_approx(game.camera.zoom.x, game._get_min_camera_zoom()), "Console level changes should reset the camera to the maximum overview distance.")
 	_assert(game.wave_manager._enemy_stat_multipliers.is_empty(), "Changing levels should clear cached enemy stat multipliers.")
 	_assert(game.wave_manager._enemy_wave_stat_cache.is_empty(), "Changing levels should clear cached per-wave enemy stats.")
 	_assert(game.wave_manager.enemy_types.has("brute"), "Level 3 should unlock brute enemies.")
@@ -1727,7 +1860,7 @@ func _run() -> void:
 	var route_enemy := game.enemy_layer.get_child(game.enemy_layer.get_child_count() - 1) as Enemy
 	_assert(route_enemy.path_points[0] == game.spawn_paths[2][0], "Route argument should spawn enemy on requested route.")
 	_assert(route_enemy.path_points == game.spawn_paths[2], "Route argument should assign the full requested route path.")
-	_assert(is_same(route_enemy.path_points, game.spawn_paths[2]), "Spawned enemies should share cached route path arrays instead of duplicating them.")
+	_assert(not is_same(route_enemy.path_points, game.spawn_paths[2]), "Spawned enemies should use route path snapshots instead of exposing cached route arrays.")
 	_assert(is_equal_approx(float(route_enemy.get("_total_path_length")), game._get_spawn_path_length(2)), "Spawned enemies should reuse the cached route length.")
 
 	game._execute_console_command("level 10")
@@ -1740,8 +1873,11 @@ func _run() -> void:
 	cached_ground_colors = game.map_layer.get("_cached_ground_colors")
 	cached_grid_lines = game.map_layer.get("_cached_grid_lines")
 	cached_road_edge_rects = game.map_layer.get("_cached_road_edge_rects")
+	cached_road_connection_masks = game.map_layer.get("_cached_road_connection_masks")
 	_assert(cached_road_cells.size() == game.road_cells.size(), "Map renderer road cache should refresh when changing levels.")
 	_assert(cached_route_paths.size() == game.spawn_paths.size(), "Map renderer route cache should refresh when changing levels.")
+	_assert(_map_renderer_road_masks_match_spawn_paths(game), "Changed-level road connections should refresh from actual enemy routes.")
+	_assert(_map_renderer_has_disconnected_adjacent_road_pair(game), "Large-map road rendering test should cover adjacent-but-disconnected road tiles.")
 	_assert(cached_ground_rects.size() == game.map_cols * game.map_rows, "Map renderer ground tile cache should refresh when changing levels.")
 	_assert(cached_ground_colors.size() == cached_ground_rects.size(), "Map renderer ground color cache should refresh when changing levels.")
 	_assert(cached_grid_lines.size() == (game.map_cols + 1 + game.map_rows + 1) * 2, "Map renderer grid line cache should refresh when changing levels.")
@@ -1757,6 +1893,7 @@ func _run() -> void:
 		game._adjust_camera_zoom(-1, Vector2(480.0, 320.0))
 	var min_zoom := game._get_min_camera_zoom()
 	_assert(is_equal_approx(game.camera.zoom.x, min_zoom), "Ctrl mouse wheel zoom-out should stop at the full-map zoom.")
+	_assert(is_equal_approx(game.ui._card_area_preview_world_to_screen_scale, min_zoom), "Card range previews should track camera zoom so UI circles match the real world area.")
 	_assert(960.0 / game.camera.zoom.x >= float(game.get_map_pixel_width()), "Full-map zoom should show the complete map width.")
 	_assert(640.0 / game.camera.zoom.y >= float(game.get_map_pixel_height()), "Full-map zoom should show the complete map height.")
 	_assert(is_equal_approx(game.camera.position.y, float(game.get_map_pixel_height()) * 0.5), "Full-map zoom should center axes that fit inside the view.")
@@ -1986,6 +2123,127 @@ func _reward_card_rarities_are_valid(game: Main) -> bool:
 		if not _is_valid_reward_card_rarity(rarity):
 			return false
 	return true
+
+
+func _map_renderer_decorations_avoid_roads(game: Main) -> bool:
+	if game == null or game.map_layer == null:
+		return false
+	var cached_decorations: Array = game.map_layer.get("_cached_decorations")
+	if cached_decorations.is_empty():
+		return false
+	for decoration in cached_decorations:
+		var raw_cell: Variant = decoration.get("cell", Vector2i(-1, -1))
+		if not raw_cell is Vector2i:
+			return false
+		if game.road_cells.has(game._grid_key(raw_cell)):
+			return false
+	return true
+
+
+func _find_buildable_decoration_cell(game: Main) -> Vector2i:
+	if game == null or game.map_layer == null or game.build_manager == null:
+		return Vector2i(-1, -1)
+	var cached_decorations: Array = game.map_layer.get("_cached_decorations")
+	for decoration in cached_decorations:
+		var raw_cell: Variant = decoration.get("cell", Vector2i(-1, -1))
+		if not raw_cell is Vector2i:
+			continue
+		var cell := raw_cell as Vector2i
+		if cell == Vector2i(2, 1):
+			continue
+		if game.build_manager.get_build_error(cell).is_empty():
+			return cell
+	return Vector2i(-1, -1)
+
+
+func _map_renderer_road_masks_match_spawn_paths(game: Main) -> bool:
+	if game == null or game.map_layer == null:
+		return false
+
+	var actual_masks: Dictionary = game.map_layer.get("_cached_road_connection_masks")
+	var expected_masks := _expected_road_connection_masks_from_spawn_paths(game)
+	if actual_masks.size() != expected_masks.size():
+		return false
+
+	for cell in expected_masks.keys():
+		if int(actual_masks.get(cell, 0)) != int(expected_masks[cell]):
+			return false
+	for cell in actual_masks.keys():
+		if int(actual_masks[cell]) != int(expected_masks.get(cell, 0)):
+			return false
+	return true
+
+
+func _map_renderer_has_disconnected_adjacent_road_pair(game: Main) -> bool:
+	var expected_masks := _expected_road_connection_masks_from_spawn_paths(game)
+	var directions: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.DOWN]
+	for key in game.road_cells.keys():
+		var cell: Vector2i = game.road_cells[key]
+		for direction in directions:
+			var neighbor := cell + direction
+			if game.road_cells.has(game._grid_key(neighbor)) and (int(expected_masks.get(cell, 0)) & _road_direction_mask_for_test(direction)) == 0:
+				return true
+	return false
+
+
+func _expected_road_connection_masks_from_spawn_paths(game: Main) -> Dictionary:
+	var masks: Dictionary = {}
+	for route_path in game.spawn_paths:
+		if route_path.size() < 2:
+			continue
+
+		var previous_cell := _world_point_to_grid_cell_for_test(route_path[0])
+		for point_index in range(1, route_path.size()):
+			var next_cell := _world_point_to_grid_cell_for_test(route_path[point_index])
+			_cache_expected_road_connection_between_cells(game, masks, previous_cell, next_cell)
+			previous_cell = next_cell
+	return masks
+
+
+func _cache_expected_road_connection_between_cells(game: Main, masks: Dictionary, start_cell: Vector2i, end_cell: Vector2i) -> void:
+	if start_cell == end_cell:
+		return
+
+	var current_cell := start_cell
+	while current_cell != end_cell:
+		var step := Vector2i.ZERO
+		if current_cell.x != end_cell.x:
+			step.x = signi(end_cell.x - current_cell.x)
+		elif current_cell.y != end_cell.y:
+			step.y = signi(end_cell.y - current_cell.y)
+
+		if step == Vector2i.ZERO:
+			return
+
+		var next_cell := current_cell + step
+		_add_expected_road_connection(game, masks, current_cell, step)
+		_add_expected_road_connection(game, masks, next_cell, Vector2i(-step.x, -step.y))
+		current_cell = next_cell
+
+
+func _add_expected_road_connection(game: Main, masks: Dictionary, cell: Vector2i, direction: Vector2i) -> void:
+	if not game.road_cells.has(game._grid_key(cell)):
+		return
+	masks[cell] = int(masks.get(cell, 0)) | _road_direction_mask_for_test(direction)
+
+
+func _world_point_to_grid_cell_for_test(world_point: Vector2) -> Vector2i:
+	return Vector2i(
+		floori(world_point.x / float(MapRenderer.GRID_SIZE)),
+		floori((world_point.y - float(MapRenderer.PLAY_TOP)) / float(MapRenderer.GRID_SIZE))
+	)
+
+
+func _road_direction_mask_for_test(direction: Vector2i) -> int:
+	if direction == Vector2i.UP:
+		return 1
+	if direction == Vector2i.RIGHT:
+		return 2
+	if direction == Vector2i.DOWN:
+		return 4
+	if direction == Vector2i.LEFT:
+		return 8
+	return 0
 
 
 func _is_valid_reward_card_rarity(rarity: String) -> bool:
