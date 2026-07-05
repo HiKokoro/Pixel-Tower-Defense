@@ -1,0 +1,26 @@
+﻿# Godot generated/cache
+.godot/
+.import/
+*.import
+*.ctex
+
+# Local editor/agent state
+.agents/
+.codex/
+
+# Backups and temporary output
+.backup/
+logic_progress.txt
+logic_progress.err.txt
+logic_rarity_test_output.txt
+*.tmp
+*.log
+
+# Local engine binaries and archives
+Godot_*.exe
+Godot_*_console.exe
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db

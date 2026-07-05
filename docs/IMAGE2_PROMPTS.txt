@@ -1,0 +1,223 @@
+# Image2 Pixel Art Prompt Set - 2D Tower Defense
+
+通用风格提示词：
+32-bit era pixel art, crisp hard edges, 32x32 grid-based tower defense game asset, orthographic top-down view, clean readable silhouette, limited but rich color palette, high contrast outline, no anti-aliasing, no blur, no gradients, transparent background, game-ready sprite, centered composition.
+
+通用负面提示词：
+realistic, 3d render, smooth vector, watercolor, blurry, anti-aliased, noisy background, perspective camera, text, logo, photorealistic, low contrast, excessive details, soft lighting.
+
+建议规格：
+- 小型单位：32x32 或 48x48
+- 塔：64x64
+- 基地：96x96
+- 地块 tile：32x32
+- UI icon：32x32
+- 特效：64x64 sprite sheet 或单帧透明图
+
+------------------------------------------------------------
+TOWERS
+------------------------------------------------------------
+
+1. Basic Tower Lv1
+Prompt:
+32-bit era pixel art, top-down basic defense tower, square mechanical base, single short cannon barrel, blue steel body, bright white core gem, crisp black outline, 64x64 sprite, transparent background, readable at small size.
+
+2. Basic Tower Lv2
+Prompt:
+32-bit era pixel art, upgraded basic defense tower, square mechanical base with reinforced side armor, single cannon barrel, blue steel body, extra glowing side modules, white core gem, crisp outline, 64x64 sprite, transparent background.
+
+3. Basic Tower Lv3
+Prompt:
+32-bit era pixel art, elite basic defense tower, reinforced square base, single heavy cannon barrel, blue steel body, gold upgrade trim, glowing core, small energy nodes around the base, crisp outline, 64x64 sprite, transparent background.
+
+4. Rapid Tower Lv1
+Prompt:
+32-bit era pixel art, top-down rapid fire tower, compact green mechanical turret, twin small gun barrels, angular light chassis, small glowing muzzle pixels, crisp dark outline, 64x64 sprite, transparent background.
+
+5. Rapid Tower Lv2
+Prompt:
+32-bit era pixel art, upgraded rapid fire tower, compact green turret with twin barrels, added side ammo pods, glowing green energy strips, reinforced angular base, crisp dark outline, 64x64 sprite, transparent background.
+
+6. Rapid Tower Lv3
+Prompt:
+32-bit era pixel art, elite rapid fire tower, triple-barrel or enhanced twin-barrel green turret, gold trim, bright green energy nodes, fast attack visual identity, crisp silhouette, 64x64 sprite, transparent background.
+
+7. Cannon Tower Lv1
+Prompt:
+32-bit era pixel art, top-down heavy cannon tower, orange industrial square base, large thick cannon barrel, dark metal muzzle, heavy armored silhouette, yellow power core, crisp outline, 64x64 sprite, transparent background.
+
+8. Cannon Tower Lv2
+Prompt:
+32-bit era pixel art, upgraded heavy cannon tower, orange armored square base, larger cannon barrel, reinforced plates, darker metal muzzle, glowing yellow core, crisp outline, 64x64 sprite, transparent background.
+
+9. Cannon Tower Lv3
+Prompt:
+32-bit era pixel art, elite heavy cannon tower, massive orange artillery turret, gold reinforced armor plates, oversized cannon muzzle, bright yellow core, heavy readable silhouette, crisp outline, 64x64 sprite, transparent background.
+
+10. Sniper Tower Lv1
+Prompt:
+32-bit era pixel art, top-down sniper tower, purple diamond-shaped base, very long thin barrel, pale scope highlight, precise high-tech silhouette, crisp dark outline, 64x64 sprite, transparent background.
+
+11. Sniper Tower Lv2
+Prompt:
+32-bit era pixel art, upgraded sniper tower, purple diamond base with side stabilizers, long thin barrel, brighter scope line, reinforced corners, crisp outline, 64x64 sprite, transparent background.
+
+12. Sniper Tower Lv3
+Prompt:
+32-bit era pixel art, elite sniper tower, purple diamond base, extra long precision barrel, gold trim, glowing scope lens, advanced high-tech look, crisp outline, 64x64 sprite, transparent background.
+
+------------------------------------------------------------
+ENEMIES
+------------------------------------------------------------
+
+13. Grunt Enemy
+Prompt:
+32-bit era pixel art, top-down small enemy unit, red square-bodied creature, simple angry eyes, dark outline, small armor stripe, readable silhouette, 32x32 sprite, transparent background.
+
+14. Runner Enemy
+Prompt:
+32-bit era pixel art, top-down fast enemy unit, yellow diamond-shaped body, sharp angular silhouette, speed streak markings, small dark eye, energetic fast look, crisp outline, 32x32 sprite, transparent background.
+
+15. Brute Enemy
+Prompt:
+32-bit era pixel art, top-down large brute enemy, purple bulky square body, heavy armor plates, red glowing eyes, horn-like corner spikes, slow tanky silhouette, crisp dark outline, 48x48 sprite, transparent background.
+
+16. Shield Enemy
+Prompt:
+32-bit era pixel art, top-down shield enemy, cyan triangular body, translucent shield outline, glowing cross core, defensive armored look, crisp outline, 40x40 sprite, transparent background.
+
+17. Enemy Death Burst
+Prompt:
+32-bit era pixel art, small enemy death burst effect, red orange pixel fragments, square particles, quick impact pop, transparent background, 64x64 effect sprite.
+
+18. Enemy Base Attack Impact
+Prompt:
+32-bit era pixel art, small attack impact effect, orange yellow pixel slash burst, two diagonal hit streaks, square particles, transparent background, 64x64 effect sprite.
+
+------------------------------------------------------------
+PROJECTILES AND EFFECTS
+------------------------------------------------------------
+
+19. Basic Bullet
+Prompt:
+32-bit era pixel art, small blue-white bullet projectile, square pixel glow, crisp outline, transparent background, 16x16 sprite.
+
+20. Rapid Bullet
+Prompt:
+32-bit era pixel art, small green rapid-fire projectile, bright pixel core with short trail, crisp hard edges, transparent background, 16x16 sprite.
+
+21. Cannon Shell
+Prompt:
+32-bit era pixel art, heavy orange cannon shell projectile, dark metal outline, square highlight, transparent background, 24x24 sprite.
+
+22. Sniper Shot
+Prompt:
+32-bit era pixel art, thin purple sniper laser projectile, straight bright pixel beam segment, pale highlight, transparent background, 32x8 sprite.
+
+23. Tower Muzzle Flash
+Prompt:
+32-bit era pixel art, small muzzle flash effect, yellow white pixel burst, hard-edged star shape, transparent background, 32x32 sprite.
+
+24. Hit Spark
+Prompt:
+32-bit era pixel art, small hit spark, yellow orange square particles, compact burst, transparent background, 32x32 sprite.
+
+------------------------------------------------------------
+MAP TILES
+------------------------------------------------------------
+
+25. Grass Tile
+Prompt:
+32-bit era pixel art, seamless top-down grass tile, dark green base, subtle pixel texture, low contrast grid-friendly details, 32x32 tile, no outline, game-ready.
+
+26. Buildable Ground Tile
+Prompt:
+32-bit era pixel art, seamless top-down buildable ground tile, muted green stone soil, subtle square texture, clean readable grid, 32x32 tile, game-ready.
+
+27. Road Tile Straight
+Prompt:
+32-bit era pixel art, seamless top-down dirt road tile, brown compact path, pixel stones, clear edges, 32x32 tile, game-ready.
+
+28. Road Tile Corner
+Prompt:
+32-bit era pixel art, top-down dirt road corner tile, brown path turning 90 degrees, pixel stones, clean hard edges, 32x32 tile, game-ready.
+
+29. Road Tile Intersection
+Prompt:
+32-bit era pixel art, top-down dirt road intersection tile, brown cross path, pixel stones, readable grid edges, 32x32 tile, game-ready.
+
+30. Blocked Rock Tile
+Prompt:
+32-bit era pixel art, top-down blocked terrain tile, dark mossy rock cluster, hard square silhouette, 32x32 tile, game-ready.
+
+------------------------------------------------------------
+BASE
+------------------------------------------------------------
+
+31. Main Base Healthy
+Prompt:
+32-bit era pixel art, top-down main base building for tower defense, blue metal bunker, small roof, central gate, fortified but compact, crisp outline, 96x96 sprite, transparent background.
+
+32. Main Base Damaged
+Prompt:
+32-bit era pixel art, damaged main base building, blue metal bunker with cracks, red warning pixels, broken corner armor, smoky dark pixel marks, crisp outline, 96x96 sprite, transparent background.
+
+33. Main Base Critical
+Prompt:
+32-bit era pixel art, heavily damaged main base, red flashing warning lights, cracked bunker walls, exposed dark interior, emergency look, crisp outline, 96x96 sprite, transparent background.
+
+------------------------------------------------------------
+UI ICONS
+------------------------------------------------------------
+
+34. Gold Icon
+Prompt:
+32-bit era pixel art UI icon, gold coin stack, bright yellow highlights, dark outline, readable at 32x32, transparent background.
+
+35. Base HP Icon
+Prompt:
+32-bit era pixel art UI icon, small blue shield with red heart core, dark outline, readable at 32x32, transparent background.
+
+36. Wave Icon
+Prompt:
+32-bit era pixel art UI icon, small enemy skull marker or marching flag, teal highlight, dark outline, readable at 32x32, transparent background.
+
+37. Level Icon
+Prompt:
+32-bit era pixel art UI icon, small map scroll with route line, green accent, dark outline, readable at 32x32, transparent background.
+
+38. Upgrade Icon
+Prompt:
+32-bit era pixel art UI icon, upward arrow over small turret module, teal glow, dark outline, readable at 32x32, transparent background.
+
+39. Sell Icon
+Prompt:
+32-bit era pixel art UI icon, coin with downward arrow, orange highlight, dark outline, readable at 32x32, transparent background.
+
+40. Start Wave Icon
+Prompt:
+32-bit era pixel art UI icon, play triangle combined with small enemy flag, teal highlight, dark outline, readable at 32x32, transparent background.
+
+------------------------------------------------------------
+OPTIONAL SPRITE SHEETS
+------------------------------------------------------------
+
+41. Runner Enemy 4-frame Walk Cycle
+Prompt:
+32-bit era pixel art sprite sheet, top-down yellow runner enemy, 4-frame walk animation, diamond body with speed streaks, frames aligned horizontally, transparent background, each frame 32x32.
+
+42. Brute Enemy 4-frame Walk Cycle
+Prompt:
+32-bit era pixel art sprite sheet, top-down purple brute enemy, 4-frame heavy walk animation, square armored body, red eyes, frames aligned horizontally, transparent background, each frame 48x48.
+
+43. Tower Construction Effect 4-frame
+Prompt:
+32-bit era pixel art sprite sheet, tower construction effect, blue teal square pixels assembling into a turret base, 4 frames aligned horizontally, transparent background, each frame 64x64.
+
+44. Victory Pixel Banner
+Prompt:
+32-bit era pixel art victory banner, teal and gold hard-edged UI panel, no text, celebratory pixel sparkles, transparent background, 320x96.
+
+45. Defeat Pixel Banner
+Prompt:
+32-bit era pixel art defeat banner, dark red hard-edged UI panel, no text, cracked metal corners, subtle ember pixels, transparent background, 320x96.
