@@ -50,8 +50,30 @@ func _run() -> void:
 		"category_label": "武器塔",
 		"icon": "基",
 	}], [])
+	_assert(ui_init_probe.codex_upgrade_container != null, "图鉴详情必须创建炮塔升级浏览容器。")
+	_assert(ui_init_probe.codex_upgrade_container.get_child_count() == 4, "基础塔图鉴应展示等级1、等级2、火塔、冰塔四个升级阶段。")
+	var codex_has_fire_branch := false
+	var codex_has_ice_branch := false
+	var codex_has_level_two := false
+	for upgrade_card in ui_init_probe.codex_upgrade_container.get_children():
+		var upgrade_preview := upgrade_card.get_node_or_null("UpgradePreview") as Control
+		var upgrade_label := upgrade_card.get_node_or_null("UpgradeNameLabel") as Label
+		_assert(upgrade_preview != null and upgrade_label != null, "图鉴升级卡片必须包含外形预览和阶段标签。")
+		var preview_tower := upgrade_preview.get_node_or_null("ActualCodexPreview") as Tower
+		_assert(preview_tower != null, "图鉴升级预览必须直接复用 Tower 节点绘制。")
+		if preview_tower.level == 2:
+			codex_has_level_two = true
+		if preview_tower.level == 3 and preview_tower.basic_branch == Tower.BASIC_FIRE_BRANCH_ID:
+			codex_has_fire_branch = upgrade_label.text.contains("火塔") and preview_tower.burn_damage_per_tick > 0
+		if preview_tower.level == 3 and preview_tower.basic_branch == Tower.BASIC_ICE_BRANCH_ID:
+			codex_has_ice_branch = upgrade_label.text.contains("冰塔") and preview_tower.ice_slow_multiplier < 1.0
+	_assert(codex_has_level_two and codex_has_fire_branch and codex_has_ice_branch, "基础塔图鉴必须能浏览等级2以及火塔/冰塔两条等级3分支。")
+	_assert(ui_init_probe.codex_detail_body_label.text.contains("等级3") and ui_init_probe.codex_detail_body_label.text.contains("持续灼烧"), "基础塔图鉴说明必须描述升级分支效果。")
 	_assert(ui_init_probe.start_wave_button.disabled, "Standalone UI setup should initialize the start-wave button as disabled.")
 	_assert(ui_init_probe.start_wave_button.mouse_default_cursor_shape == Control.CURSOR_ARROW, "Standalone UI setup should initialize the start-wave button with the default cursor.")
+	_assert(ui_init_probe.game_speed_button != null, "Standalone UI setup should create the game speed button.")
+	_assert(ui_init_probe.game_speed_button.text == "1x", "Game speed button should start at 1x.")
+	_assert(ui_init_probe.game_speed_button.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND, "Game speed button should stay clickable.")
 	var hud_top_bar := ui_init_probe.ui_root.get_node_or_null("HudTopBarTexture") as TextureRect
 	_assert(hud_top_bar != null and hud_top_bar.texture != null, "顶部状态栏必须使用预绘制贴图，不能回退到代码画面板。")
 	for hud_status_name in ["HudGoldStatusTexture", "HudHealthStatusTexture", "HudLevelStatusTexture", "HudWaveStatusTexture"]:
@@ -128,6 +150,8 @@ func _run() -> void:
 	_assert(tower_text_probe._format_cannon_level_three_trait_text() == "震荡核心：大范围高强度溅射炮击", "Cannon tower level-3 trait helper should use localized text.")
 	_assert(tower_text_probe._format_sniper_level_two_trait_text() == "校准透镜：极大提高单发伤害和射程", "Sniper tower level-2 trait helper should use localized text.")
 	_assert(tower_text_probe._format_sniper_level_three_trait_text() == "处决射击：对低生命敌人造成致命伤害", "Sniper tower level-3 trait helper should use localized text.")
+	_assert(tower_text_probe._format_cluster_level_two_trait_text() == "蜂群装填：增加弹头数量和单枚伤害", "Cluster tower level-2 trait helper should use localized text.")
+	_assert(tower_text_probe._format_cluster_level_three_trait_text() == "裂爆弹头：弹头伤害继续提高，并解锁小范围爆炸", "Cluster tower level-3 trait helper should use localized text.")
 	var fire_branch_tower := Tower.new()
 	fire_branch_tower.setup(null, Vector2i.ZERO, {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
 	_assert(fire_branch_tower.upgrade(), "Basic tower should still upgrade to level 2 normally.")
@@ -140,6 +164,7 @@ func _run() -> void:
 	ice_branch_tower.setup(null, Vector2i.ZERO, {"id": "basic", "name": "基础塔", "damage": 15, "range": 130.0, "interval": 0.8})
 	_assert(ice_branch_tower.upgrade() and ice_branch_tower.upgrade(Tower.BASIC_ICE_BRANCH_ID), "Basic tower should upgrade into the ice branch.")
 	_assert(ice_branch_tower.basic_branch == Tower.BASIC_ICE_BRANCH_ID and ice_branch_tower.ice_slow_multiplier < 1.0, "Ice branch should store slow combat parameters.")
+	_assert(ice_branch_tower.ice_slow_duration >= 3.0, "Ice branch should keep the longer slow duration after the control-value balance pass.")
 	_assert(ice_branch_tower.tower_color.b > ice_branch_tower.tower_color.r, "Ice branch tower palette should be cold.")
 	var burn_enemy_probe := Enemy.new()
 	burn_enemy_probe.health = 40
@@ -165,12 +190,26 @@ func _run() -> void:
 	})
 	slow_projectile_probe._apply_impact_damage(Vector2.ZERO)
 	_assert(slow_enemy_probe.speed_multiplier < 1.0 and slow_enemy_probe.slow_time > 0.0, "Ice branch projectiles should reduce enemy movement speed.")
+	var homing_target_probe := Enemy.new()
+	homing_target_probe.global_position = Vector2(120.0, 120.0)
+	var homing_projectile_probe := Projectile.new()
+	homing_projectile_probe.global_position = Vector2.ZERO
+	homing_projectile_probe.setup(homing_target_probe, 6, 100.0, 0.0, 0, Color(1.0, 0.66, 0.18), 0, Vector2.RIGHT, 400.0, Projectile.VISUAL_CLUSTER)
+	homing_projectile_probe.setup_homing(true, 8.0)
+	homing_projectile_probe._process(0.10)
+	_assert(homing_projectile_probe._travel_direction.y > 0.45, "蜂巢导弹塔弹头应向存活目标转向。")
+	var fallback_direction := homing_projectile_probe._travel_direction
+	homing_target_probe.is_dead = true
+	homing_projectile_probe._process(0.10)
+	_assert(homing_projectile_probe._travel_direction.distance_to(fallback_direction) < 0.001, "蜂巢导弹塔目标死亡后应保持原方向继续飞行。")
 	fire_branch_tower.queue_free()
 	ice_branch_tower.queue_free()
 	burn_enemy_probe.queue_free()
 	slow_enemy_probe.queue_free()
+	homing_target_probe.queue_free()
 	burn_projectile_probe.queue_free()
 	slow_projectile_probe.queue_free()
+	homing_projectile_probe.queue_free()
 	tower_text_probe.queue_free()
 
 	var game := main_scene.instantiate() as Main
@@ -194,6 +233,28 @@ func _run() -> void:
 	_assert(game._get_tower_type_display_name("display_probe") == "防御塔", "Main should provide a localized fallback tower display name.")
 	_assert(game._get_default_tower_display_name() == "防御塔", "Main default tower display-name helper should use localized text.")
 	game.tower_configs.erase("display_probe")
+	var cluster_config := game.get_tower_config("cluster")
+	_assert(cluster_config.get("name", "") == "蜂巢导弹塔", "Main should define the cluster missile tower.")
+	_assert(int(cluster_config.get("shots", 0)) == 6 and int(cluster_config.get("damage", 0)) == 7, "蜂巢导弹塔初始应发射6枚、单枚伤害7。")
+	_assert(float(cluster_config.get("range", 0.0)) > float(game.get_tower_config("cannon").get("range", 0.0)), "蜂巢导弹塔应拥有大射程。")
+	_assert(float(cluster_config.get("projectile_speed", 0.0)) < float(game.get_tower_config("rapid").get("projectile_speed", 0.0)), "蜂巢导弹塔弹速应比速射塔略慢。")
+	var cluster_listed := false
+	for listed_config in game.get_tower_configs():
+		if str((listed_config as Dictionary).get("id", "")) == "cluster":
+			cluster_listed = true
+	_assert(cluster_listed, "图鉴和建塔列表应包含蜂巢导弹塔。")
+	var cluster_tower_probe := Tower.new()
+	cluster_tower_probe.setup(game, Vector2i.ZERO, cluster_config)
+	_assert(cluster_tower_probe.shots_per_attack == 6 and cluster_tower_probe.damage == 7, "蜂巢导弹塔运行时应保留初始弹头数量和伤害。")
+	_assert(cluster_tower_probe.get_upgrade_cost() == 145, "蜂巢导弹塔二级升级价格应匹配配置梯度。")
+	_assert(cluster_tower_probe.upgrade(), "蜂巢导弹塔应能升级到等级2。")
+	var cluster_level_two_damage := cluster_tower_probe.damage
+	_assert(cluster_level_two_damage == 10 and cluster_tower_probe.shots_per_attack == 8, "蜂巢导弹塔等级2应提高单枚伤害和弹头数量。")
+	_assert(cluster_tower_probe.get_upgrade_cost() == 245, "蜂巢导弹塔三级升级价格应匹配配置梯度。")
+	_assert(cluster_tower_probe.upgrade(), "蜂巢导弹塔应能升级到等级3。")
+	_assert(cluster_tower_probe.damage == 11 and cluster_tower_probe.damage > cluster_level_two_damage, "蜂巢导弹塔等级3直击伤害应继续提高。")
+	_assert(cluster_tower_probe.shots_per_attack == 10 and cluster_tower_probe.splash_radius > 0.0 and cluster_tower_probe.splash_damage_ratio > 0.0, "蜂巢导弹塔等级3应解锁更多弹头和范围伤害。")
+	cluster_tower_probe.queue_free()
 	_assert(game._format_current_level_message_text(2, "双折道") == "第2关：双折道", "Main level message formatter should use localized level text.")
 	_assert(game._format_locked_level_message_text(4) == "第4关尚未解锁，请先通关前置关卡。", "Main locked-level message formatter should use localized text.")
 	_assert(game._format_wave_started_message_text(3, 2) == "第3关第2波已开始。", "Main wave-start message formatter should use localized text.")
@@ -209,6 +270,7 @@ func _run() -> void:
 	_assert(game._format_elite_stun_message_text(2) == "精英怪爆炸，眩晕2座炮塔。", "Main elite-stun message formatter should use localized text.")
 	_assert(game._format_level_complete_message_text(6) == "第6关已完成，可以进入下一关。", "Main level-complete message formatter should use localized text.")
 	_assert(game._format_intermission_message_text(3, 4.75) == "第3波已清空，下一波将在4.8秒后开始。", "Main intermission message formatter should use localized text.")
+	_assert(game._format_intermission_started_message_text(3) == "第3波已清空，准备下一波。", "Main intermission-start message formatter should use localized text.")
 	_assert(game._format_auto_wave_started_message_text(4, 5) == "第4关第5波自动开始。", "Main auto-wave message formatter should use localized text.")
 	_assert(game._get_auto_wave_blocked_message_text() == "自动波次暂时无法开始。", "Main auto-wave blocked message helper should use localized text.")
 	_assert(game._format_reward_card_console_text("超频核心") == "获得奖励卡牌：超频核心", "Main reward-card console formatter should use localized text.")
@@ -223,6 +285,7 @@ func _run() -> void:
 	_assert(game._format_damage_boost_card_message_text(2, 10.0) == "卡牌生效：2座塔在10秒内伤害提高。", "Main damage-boost card message formatter should use localized text.")
 	_assert(game._format_range_boost_card_message_text(2, 12.0) == "卡牌生效：2座塔在12秒内射程提高。", "Main range-boost card message formatter should use localized text.")
 	_assert(game._format_fire_rate_boost_card_message_text(2, 8.0) == "卡牌生效：2座塔在8秒内攻速提高。", "Main fire-rate card message formatter should use localized text.")
+	_assert(game._format_volley_command_card_message_text(2, 10.0) == "卡牌生效：2座塔将在10秒内跟随鼠标指针射击。", "Main volley-command formatter should use localized text.")
 	_assert(game._format_heal_card_message_text(6) == "卡牌生效：基地修复6点生命。", "Main heal-card message formatter should use localized text.")
 	_assert(game._get_missile_card_empty_message_text() == "导弹目标区域内没有敌人。", "Main missile-empty message helper should use localized text.")
 	_assert(game._format_missile_card_hit_message_text(3) == "卡牌生效：导弹命中3个敌人。", "Main missile-hit message formatter should use localized text.")
@@ -248,8 +311,8 @@ func _run() -> void:
 	_assert(game._get_panic_button_card_message_text() == "紧急按钮启动：基地获得战场缓冲。", "Main panic button helper should use localized text.")
 	_assert(game._get_bounty_mark_card_empty_message_text() == "悬赏标记范围内没有敌人。", "Main bounty empty helper should use localized text.")
 	_assert(game._format_bounty_mark_card_hit_message_text("重甲兵", 120) == "卡牌生效：已悬赏重甲兵，击杀额外+120金币。", "Main bounty formatter should use localized text.")
-	_assert(game._get_reroll_cache_card_empty_message_text() == "战术改签需要至少一张旧手牌。", "Main reroll empty helper should use localized text.")
-	_assert(game._get_reroll_cache_card_message_text() == "卡牌生效：已改签最左侧手牌。", "Main reroll helper should use localized text.")
+	_assert(game._get_reroll_cache_card_empty_message_text() == "战术改签需要至少一张可升级稀有度的旧手牌。", "Main reroll empty helper should use localized text.")
+	_assert(game._get_reroll_cache_card_message_text() == "卡牌生效：已随机改签一张手牌为更高稀有度。", "Main reroll helper should use localized text.")
 	_assert(game._get_unknown_reward_card_message_text() == "未知卡牌。", "Main unknown-card message helper should use localized text.")
 	_assert(game._get_victory_message_text() == "胜利！所有关卡已清空。", "Main victory message helper should use localized text.")
 	_assert(game._get_victory_title_text() == "胜利" and game._get_victory_subtitle_text().contains("所有关卡已完成"), "Main victory overlay text helpers should use localized text.")
@@ -332,8 +395,8 @@ func _run() -> void:
 	_assert(normalized_routes.size() == 2, "Main should discard invalid or incomplete route configs.")
 	_assert(normalized_routes[0] == [Vector2i(0, 0), Vector2i(2, 0)], "Main should keep valid Vector2i route configs.")
 	_assert(normalized_routes[1] == [Vector2i(3, 2), Vector2i(5, 2)], "Main should convert Vector2 route points to grid cells.")
-	_assert(game._get_reward_card_pool().size() == 20, "Reward card pool should contain exactly twenty card types.")
-	_assert(_reward_card_ids_are_unique(game), "Reward card ids should be unique across the twenty-card pool.")
+	_assert(game._get_reward_card_pool().size() == 21, "Reward card pool should contain exactly twenty-one card types.")
+	_assert(_reward_card_ids_are_unique(game), "Reward card ids should be unique across the twenty-one-card pool.")
 	_assert(_reward_card_rarities_are_valid(game), "Every reward card should declare one of the five effect rarity tiers.")
 	_assert(_reward_card_icons_are_localized(game), "Reward card icons should not use English abbreviations or currency symbols.")
 	_assert(game._reward_card_uses_strength_roll(game._get_reward_card_definition("tower_boost")), "Multiplier-based reward cards should roll strength when drawn.")
@@ -351,9 +414,85 @@ func _run() -> void:
 	_assert(int(scaled_missile_card.get("damage", 0)) > int(base_missile_card.get("damage", 0)), "Higher rarity attack cards should scale damage above their base values.")
 	_assert(int(base_missile_card.get("damage", 0)) >= 270, "Missile cards should have the strengthened base damage.")
 	_assert(int(game._get_reward_card_definition("firestorm").get("damage", 0)) >= 135, "Firestorm cards should have the strengthened base damage.")
+	var base_firestorm_card := game._get_reward_card_definition("firestorm")
+	var red_firestorm_card := base_firestorm_card.duplicate(true)
+	red_firestorm_card["rarity"] = "red"
+	red_firestorm_card["_rarity_scaled"] = false
+	var normalized_red_firestorm := game._normalize_reward_card(red_firestorm_card)
+	_assert(is_equal_approx(float(normalized_red_firestorm.get("radius", 0.0)), float(base_firestorm_card.get("radius", 0.0))), "Firestorm rarity should not change its authored/fullscreen range.")
+	_assert(int(normalized_red_firestorm.get("damage", 0)) > int(base_firestorm_card.get("damage", 0)), "Firestorm rarity should mainly raise damage values.")
 	var base_freeze_card := game._get_reward_card_definition("global_freeze")
 	var scaled_freeze_card := game._normalize_reward_card(base_freeze_card)
+	var red_freeze_card := base_freeze_card.duplicate(true)
+	red_freeze_card["rarity"] = "red"
+	red_freeze_card["_rarity_scaled"] = false
+	var normalized_red_freeze := game._normalize_reward_card(red_freeze_card)
+	_assert(is_equal_approx(float(normalized_red_freeze.get("radius", 0.0)), float(base_freeze_card.get("radius", 0.0))), "Global freeze rarity should not change its authored/fullscreen range.")
+	_assert(int(normalized_red_freeze.get("damage", 0)) > int(base_freeze_card.get("damage", 0)), "Global freeze rarity should mainly raise damage values.")
 	_assert(float(scaled_freeze_card.get("slow_multiplier", 1.0)) < float(base_freeze_card.get("slow_multiplier", 1.0)), "Higher rarity control cards should strengthen slow effects.")
+	_assert(game._get_reward_card_release_radius("firestorm", normalized_red_firestorm) >= game.get_map_half_max_dimension(), "Firestorm release preview should cover the whole map.")
+	_assert(game._get_reward_card_release_radius("global_freeze", normalized_red_freeze) >= game.get_map_half_max_dimension(), "Global freeze release preview should cover the whole map.")
+	var volley_command_card := game._normalize_reward_card(game._get_reward_card_definition("volley_command"))
+	_assert(str(volley_command_card.get("name", "")) == "齐射指令", "齐射指令卡牌应存在于奖励卡池。")
+	_assert(is_equal_approx(float(volley_command_card.get("duration", 0.0)), 10.0), "齐射指令必须固定维持10秒，不受稀有度缩放。")
+	_assert(_reward_card_descriptions_match_scaled_values(game), "各稀有度卡牌描述必须显示归一化后的真实倍率和数值。")
+	game.base_health = 2
+	game.max_base_health = 20
+	_assert(game._get_reward_card_dynamic_weight(game._get_reward_card_definition("panic_button"), 1) > game._get_reward_card_dynamic_weight(game._get_reward_card_definition("tower_boost"), 1), "低血量时高级救急卡权重应高于普通增益卡。")
+	game.base_health = game.max_base_health
+	game.gold = 0
+	_assert(game._get_reward_card_dynamic_weight(game._get_reward_card_definition("gold"), 1) > game._get_reward_card_dynamic_weight(game._get_reward_card_definition("tower_boost"), 1), "金币不足时资源卡权重应高于普通增益卡。")
+	_assert(game._get_enemy_density_pressure_for_count(24) > game._get_enemy_density_pressure_for_count(0), "敌人密集压力应随场上敌人数增加。")
+	var sparse_attack_weight := game._get_reward_card_dynamic_weight(game._get_reward_card_definition("missile"), 1)
+	var dense_enemy_probes: Array[Enemy] = []
+	for enemy_index in range(24):
+		var dense_enemy := Enemy.new()
+		root.add_child(dense_enemy)
+		dense_enemy_probes.append(dense_enemy)
+		game._enemy_cache.append(dense_enemy)
+	var dense_attack_weight := game._get_reward_card_dynamic_weight(game._get_reward_card_definition("missile"), 1)
+	_assert(dense_attack_weight > sparse_attack_weight, "敌人密集时攻击卡权重应高于低密度状态。")
+	for dense_enemy in dense_enemy_probes:
+		dense_enemy.queue_free()
+	game._enemy_cache.clear()
+	var upgraded_replacement := game._make_higher_rarity_replacement_card(game._normalize_reward_card({"id": "heal", "rarity": Main.CARD_RARITY_WHITE}), 1)
+	_assert(game._get_reward_card_rarity_rank(str(upgraded_replacement.get("rarity", ""))) > game._get_reward_card_rarity_rank(Main.CARD_RARITY_WHITE), "战术改签生成的新牌稀有度必须高于被替换手牌。")
+	game._card_hand = [
+		game._normalize_reward_card({"id": "heal", "rarity": Main.CARD_RARITY_WHITE}),
+		game._normalize_reward_card({"id": "gold", "rarity": Main.CARD_RARITY_BLUE}),
+		game._normalize_reward_card({"id": "reroll_cache", "rarity": Main.CARD_RARITY_GOLD}),
+	]
+	_assert(game._apply_reroll_cache_card(2), "战术改签应随机替换一张旧手牌并消耗自身。")
+	_assert(game._card_hand.size() == 2, "战术改签使用后应消耗改签卡而不是额外塞满手牌。")
+	_assert(not _reward_card_hand_contains_id(game, "reroll_cache"), "战术改签不应把自己替换回手牌。")
+	game._clear_enemies_and_projectiles()
+	await process_frame
+	game._card_hand.clear()
+	game._pending_reward_card.clear()
+	game.gold = Main.INITIAL_GOLD
+	var was_game_started := game.has_game_started
+	var was_game_over := game.is_game_over
+	var was_level_complete := game.is_level_complete
+	var was_passive_card_timer_active := game._passive_card_timer_active
+	game.has_game_started = true
+	game.is_game_over = false
+	game.is_level_complete = false
+	game._passive_card_timer = Main.PASSIVE_CARD_INTERVAL - 0.1
+	game._update_passive_card_drop(0.2)
+	_assert(game._card_hand.is_empty(), "未点击开始波次前，自动刷卡计时不应提前生效。")
+	game._start_passive_card_timer()
+	_assert(game._passive_card_timer_active and is_equal_approx(game._passive_card_timer, 0.0), "点击开始波次后才应重置并启动自动刷卡计时。")
+	game._passive_card_timer = Main.PASSIVE_CARD_INTERVAL - 0.1
+	game._update_passive_card_drop(0.2)
+	_assert(game._card_hand.size() == 1, "战斗中每60秒应自动发一张新卡。")
+	game._card_hand.clear()
+	game._pending_reward_card.clear()
+	game._passive_card_timer = 0.0
+	game._passive_card_timer_active = was_passive_card_timer_active
+	game.has_game_started = was_game_started
+	game.is_game_over = was_game_over
+	game.is_level_complete = was_level_complete
+	game.ui.update_card_hand(game._card_hand, game._pending_reward_card, false)
 	_assert(game.current_level_index == 0, "Game should start on level 1.")
 	_assert(game.path_points.size() > 2, "Level should generate a pathfinding path.")
 	_assert(game.spawn_paths.size() == 1, "Level 1 should have one spawn route.")
@@ -501,6 +640,7 @@ func _run() -> void:
 	_assert(game.get_world_particle_count() == 0, "World particle count should clear after manually freeing particles.")
 	_assert(not game.has_game_started, "Game should start behind the start screen.")
 	_assert(game.ui.start_overlay.visible, "Start overlay should be visible on launch.")
+	_assert(not game.ui.message_label.visible and game.ui._status_message_items.is_empty(), "Start screen should not show floating gameplay status tips.")
 	_assert(game.ui.start_overlay.get_node_or_null("TacticalBackground") != null, "Start overlay should render a tactical pixel background.")
 	_assert(UpdateAnnouncements.get_recent_announcements().size() <= 5, "Player update announcements should keep only the latest five major entries.")
 	_assert(not UpdateAnnouncements.get_latest_announcement_id().is_empty(), "Player update announcements should expose the latest announcement id.")
@@ -636,6 +776,21 @@ func _run() -> void:
 	var ui_click_sfx_stream := game.ui_click_sfx_player.stream as AudioStreamWAV
 	_assert(ui_click_sfx_stream != null and ui_click_sfx_stream.data.size() > 0, "按钮点击音效应使用程序生成的WAV数据。")
 	_assert(game.ui.start_wave_button.pressed.is_connected(Callable(game, "_on_ui_button_pressed_for_sound")), "按钮点击应统一绑定点击音效。")
+	_assert(game.ui.game_speed_button.pressed.is_connected(Callable(game, "_on_ui_button_pressed_for_sound")), "Speed button should use the shared click sound.")
+	_assert(is_equal_approx(Engine.time_scale, 1.0), "Game speed should start at normal speed.")
+	game.ui._on_game_speed_pressed()
+	_assert(is_equal_approx(Engine.time_scale, 1.5), "First speed click should switch to 1.5x.")
+	_assert(game.ui.game_speed_button.text == "1.5x", "Speed button should display 1.5x.")
+	game.ui._on_game_speed_pressed()
+	_assert(is_equal_approx(Engine.time_scale, 2.0), "Second speed click should switch to 2x.")
+	_assert(game.ui.game_speed_button.text == "2x", "Speed button should display 2x.")
+	game.ui._on_game_speed_pressed()
+	_assert(is_equal_approx(Engine.time_scale, 4.0), "Third speed click should switch to 4x.")
+	_assert(game.ui.game_speed_button.text == "4x", "Speed button should display 4x.")
+	game.ui._on_game_speed_pressed()
+	_assert(is_equal_approx(Engine.time_scale, 1.0), "Fourth speed click should wrap to 1x.")
+	_assert(game.ui.game_speed_button.text == "1x", "Speed button should display 1x after wrapping.")
+	game.ui._clear_status_message_stack()
 	_assert(game.ui._build_option_buttons.size() == game.get_tower_configs().size(), "Build UI should cache tower option buttons for enabled-state updates.")
 	_assert(game.ui.build_options_scroll != null and game.ui.build_options_container.get_parent() == game.ui.build_options_scroll, "Expanded build options should be inside a horizontal scroll container.")
 	_assert(game.ui.build_options_scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_AUTO, "Expanded build options should support horizontal scrolling.")
@@ -715,7 +870,19 @@ func _run() -> void:
 	var red_face_style := game.ui._get_card_rarity_face_style({"rarity": "red"})
 	_assert(int(red_face_style.get("border_width", 0)) == 4 and int(red_face_style.get("pip_count", 0)) == 4, "Red card face style should expose premium border and pip configuration.")
 	var red_face_probe := game.ui._make_card_control({"id": "risky_cache", "name": "测试红卡", "type_label": "概率", "rarity": "red", "description": "测试"}, 0)
-	_assert(red_face_probe.get_node_or_null("RarityPip3") != null and red_face_probe.get_node_or_null("RarityRail4") != null and red_face_probe.get_node_or_null("RarityCorner3") != null, "Red card controls should directly apply the premium rarity face decorations.")
+	var red_texture_background := red_face_probe.get_node_or_null("RarityTextureBackground") as TextureRect
+	_assert(red_texture_background != null and red_texture_background.texture != null and str(red_face_style.get("texture_path", "")).ends_with("card_background_red.png"), "红色卡牌控件必须使用切图后的红色稀有度卡面背景。")
+	var red_panel_style := red_face_probe.get_theme_stylebox("panel") as StyleBoxFlat
+	_assert(red_panel_style != null and red_panel_style.bg_color.a == 0.0 and red_panel_style.get_border_width_min() == 0.0 and red_panel_style.shadow_size == 0, "贴图卡面已自带卡框，原 Panel 样式必须透明且不再叠加边框。")
+	_assert(red_face_probe.get_node_or_null("CardIconFrame") == null, "贴图卡面已包含中部装饰框，不应再叠加旧版图标框。")
+	var red_type_label := red_face_probe.get_node_or_null("CardTypeLabel") as Label
+	var red_title_label := red_face_probe.get_node_or_null("CardTitle") as Label
+	var red_icon_label := red_face_probe.get_node_or_null("CardIcon") as Label
+	var red_hint_label := red_face_probe.get_node_or_null("CardHint") as Label
+	_assert(red_type_label != null and red_type_label.position == Vector2(19.0, 20.0) and red_type_label.get_theme_font_size("font_size") == 8, "卡牌类型文字应压进新卡面顶部安全区域，并贴合卡面视觉中轴。")
+	_assert(red_title_label != null and red_title_label.position == Vector2(18.0, 36.0) and red_title_label.get_theme_font_size("font_size") == 12, "卡牌标题应按新背景内框重新排版，并贴合卡面视觉中轴。")
+	_assert(red_icon_label != null and red_icon_label.position == Vector2(24.0, 70.0) and red_icon_label.get_theme_font_size("font_size") == 23, "卡牌图标应居中落在新背景的主视觉区域，并贴合卡面视觉中轴。")
+	_assert(red_hint_label != null and red_hint_label.position == Vector2(20.0, 117.0) and red_hint_label.get_theme_font_size("font_size") == 9, "卡牌操作提示应落在新背景底部信息槽内，并贴合卡面视觉中轴。")
 	red_face_probe.free()
 	_assert(game.ui._get_card_description({"description": "  范围伤害  "}) == "范围伤害", "Card description helper should trim descriptions.")
 	game.ui.set_build_enabled(false)
@@ -780,6 +947,9 @@ func _run() -> void:
 	_assert(game.ui._get_gold_card_icon_text() == "金", "Gold card icon helper should use localized text.")
 	_assert(game.ui._get_default_card_icon_text() == "卡", "Game UI default card icon helper should use localized text.")
 	_assert(game.ui._format_level_intro_title_text(3, 10) == "第03关 / 共10关", "Level intro title formatter should use localized padded level text.")
+	_assert(game.ui._format_wave_countdown_title_text(4) == "第4波即将开始", "Wave countdown title formatter should use localized wave text.")
+	_assert(game.ui._format_wave_countdown_timer_text(4.01) == "4.01", "Wave countdown timer should show seconds with two decimal places.")
+	_assert(game.ui._format_wave_countdown_timer_text(-0.25) == "0.00", "Wave countdown timer should clamp negative values while keeping two decimals.")
 	_assert(game.ui._format_level_clear_console_text(3, "分裂堡垒") == "第3关完成：分裂堡垒", "Level clear console formatter should use localized completion text.")
 	_assert(game.ui._get_level_clear_title_text() == "关卡完成", "Level clear title helper should use localized title text.")
 	_assert(game.ui._format_level_clear_subtitle_text(3, "分裂堡垒") == "第03关  分裂堡垒", "Level clear subtitle formatter should use localized padded level text.")
@@ -810,6 +980,42 @@ func _run() -> void:
 	_assert(not game.ui.message_label.has_theme_stylebox_override("normal"), "Status tips should float as text without a custom large background panel.")
 	_assert(game.ui.message_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER, "Status tips should be centered for easier reading.")
 	_assert(game.ui.message_label.visible and is_equal_approx(game.ui.message_label.modulate.a, 1.0), "New status tips should appear fully visible before fading.")
+	game.ui.update_status(
+		game.gold,
+		game.base_health,
+		game.max_base_health,
+		game.current_level_index + 1,
+		game.level_configs.size(),
+		game.wave_manager.current_wave,
+		game.wave_manager.total_waves,
+		"第二条提示"
+	)
+	_assert(game.ui._status_message_items.size() >= 2, "Status tips should stack when several messages appear close together.")
+	var older_status_label := game.ui._status_message_items[1].get("label") as Label
+	_assert(older_status_label != null and older_status_label.position.y < game.ui.message_label.position.y, "Older status tips should float above the newest tip for a stacked feel.")
+	_assert(_status_stack_text_count(game.ui, "仅提示变化") == 1, "The first status-tip event should keep exactly one floating label in the stack.")
+	_assert(_status_stack_text_count(game.ui, "第二条提示") == 1, "The second status-tip event should not be duplicated when the reusable label is detached.")
+	_assert(_status_stack_event_ids_are_unique(game.ui), "Each logical status-tip event should own only one floating label.")
+	var duplicate_stack_count := game.ui._status_message_items.size()
+	game.ui.update_status(
+		game.gold,
+		game.base_health,
+		game.max_base_health,
+		game.current_level_index + 1,
+		game.level_configs.size(),
+		game.wave_manager.current_wave,
+		game.wave_manager.total_waves,
+		"仅提示变化"
+	)
+	_assert(game.ui._status_message_items.size() == duplicate_stack_count + 1, "A new logical status-tip event should add exactly one floating label, even when the text was used before.")
+	_assert(_status_stack_text_count(game.ui, "仅提示变化") == 2, "Reusing the same text for a later logical event should not be blocked by text-only de-duplication.")
+	_assert(_status_stack_event_ids_are_unique(game.ui), "Repeating status-tip text should still keep one label per logical event.")
+	duplicate_stack_count = game.ui._status_message_items.size()
+	game.set_message("连续相同提示")
+	game.set_message("连续相同提示")
+	_assert(game.ui._status_message_items.size() >= mini(duplicate_stack_count + 2, GameUI.STATUS_MESSAGE_STACK_LIMIT), "Consecutive identical gameplay messages should keep filling the floating-tip stack up to its limit.")
+	_assert(_status_stack_text_count(game.ui, "连续相同提示") == 2, "Consecutive identical gameplay messages should not be blocked by text-only de-duplication.")
+	_assert(_status_stack_event_ids_are_unique(game.ui), "Consecutive identical gameplay messages should still keep one label per logical event.")
 	game.ui._process(GameUI.STATUS_MESSAGE_HOLD_TIME + GameUI.STATUS_MESSAGE_FADE_TIME + 0.05)
 	_assert(not game.ui.message_label.visible and is_equal_approx(game.ui.message_label.modulate.a, 0.0), "Status tips should gradually fade out after being shown.")
 
@@ -865,6 +1071,7 @@ func _run() -> void:
 	_assert(not game.is_game_paused, "Returning to start screen should leave pause state.")
 	_assert(not game.has_game_started, "Returning to start screen should leave gameplay.")
 	_assert(game.ui.start_overlay.visible, "Returning to start screen should show the start overlay.")
+	_assert(not game.ui.message_label.visible and game.ui._status_message_items.is_empty(), "Returning to start screen should clear floating gameplay status tips.")
 	_assert(not game.ui.pause_overlay.visible, "Returning to start screen should immediately hide the pause menu.")
 	_assert(not game.ui.is_confirm_dialog_visible(), "Confirming return to start should close the exit warning.")
 	_assert(not game.ui.level_banner_panel.visible, "Returning to start screen should hide the level intro banner.")
@@ -898,6 +1105,12 @@ func _run() -> void:
 	game._check_level_complete()
 	await process_frame
 	_assert(game._intermission_active, "Clearing a non-final auto wave should start the five second intermission.")
+	_assert(game.ui.wave_countdown_panel.visible, "Intermission should show a dedicated center wave countdown panel.")
+	_assert(game.ui.wave_countdown_title_label.text == "第2波即将开始", "Wave countdown should announce the upcoming wave in large center text.")
+	var wave_countdown_timer_text := game.ui.wave_countdown_timer_label.text
+	_assert(_is_two_decimal_seconds_text(wave_countdown_timer_text) and float(wave_countdown_timer_text) > 4.0 and float(wave_countdown_timer_text) <= 5.0, "Wave countdown should show the remaining countdown below the title with two decimals.")
+	_assert(not _node_has_child_of_type(game.ui.wave_countdown_panel, "ColorRect"), "Wave countdown should float as text without decorative border rules.")
+	_assert(not str(game._message).contains("秒后开始"), "Intermission floating status should not carry the per-frame countdown text.")
 	_assert(game._card_hand.size() == 1, "Wave clear should store a reward card in hand.")
 	_assert(game.ui._card_controls.size() == 1, "Stored card should render as a hand card.")
 	_assert(str(game._card_hand[0].get("id", "")) == "tower_boost", "Wave one reward should be a tower boost card.")
@@ -911,6 +1124,7 @@ func _run() -> void:
 	await process_frame
 	_assert(game.wave_manager.current_wave == 2, "Auto waves should start the next wave after five seconds.")
 	_assert(not game._intermission_active, "Intermission should end when the automatic wave starts.")
+	_assert(not game.ui.wave_countdown_panel.visible, "Wave countdown should hide as soon as the next wave starts.")
 	game.wave_manager.stop()
 	game._clear_enemies_and_projectiles()
 
@@ -935,6 +1149,25 @@ func _run() -> void:
 	game._on_reward_card_play_requested(game._card_hand.size() - 1, Vector2(500.0, 300.0))
 	await create_timer(0.25).timeout
 	_assert(boosted_tower.fire_rate_multiplier > 1.0, "Fire-rate card should increase tower fire rate temporarily.")
+
+	var volley_target_position := boosted_tower.global_position + Vector2(180.0, 0.0)
+	var volley_projectiles_before := game.get_active_projectiles().size()
+	_assert(game._apply_reward_card(game._make_debug_reward_card("volley"), volley_target_position), "齐射指令应能对已有武器塔生效。")
+	_assert(boosted_tower.forced_fire_time > 0.0, "齐射指令应让炮塔进入强制射击状态。")
+	_assert(boosted_tower.forced_fire_time <= 10.0, "齐射指令的持续时间应固定为10秒。")
+	boosted_tower._cooldown = 0.0
+	boosted_tower._process(0.016)
+	_assert(boosted_tower._barrel_direction.dot(Vector2.RIGHT) > 0.95, "齐射指令释放后炮塔应先转向释放位置。")
+	_assert(game.get_active_projectiles().size() > volley_projectiles_before, "齐射指令期间即使没有目标也应朝指令方向开火。")
+	var volley_follow_position := boosted_tower.global_position + Vector2(0.0, 180.0)
+	var volley_follow_projectiles_before := game.get_active_projectiles().size()
+	_assert(game._update_active_volley_command_aim(volley_follow_position) > 0, "齐射指令持续期间应更新为当前鼠标指针方向。")
+	boosted_tower._cooldown = 0.0
+	boosted_tower._process(0.016)
+	_assert(boosted_tower.forced_fire_target_position == volley_follow_position, "齐射指令应保存最新鼠标指针世界位置。")
+	_assert(boosted_tower._barrel_direction.dot(Vector2.DOWN) > 0.95, "齐射指令期间炮塔应跟随鼠标指针方向转动。")
+	_assert(game.get_active_projectiles().size() > volley_follow_projectiles_before, "齐射指令方向更新后仍应继续开火。")
+	game._clear_enemies_and_projectiles()
 
 	var before_max_hp := game.max_base_health
 	game._add_card_to_hand_or_pending(game._make_debug_reward_card("fortify"))
@@ -988,12 +1221,14 @@ func _run() -> void:
 	game.ui._on_card_hand_toggle_pressed()
 	_assert(game.ui._card_hand_expanded, "Card hand should expand when toggled again.")
 	_assert(game.ui.card_hand_toggle_button.text == "收起手牌", "Expanded card hand should restore the collapse label.")
+	_assert(game.ui.card_hand_zone.position + game.ui.card_hand_toggle_button.position == Vector2(888.0, 474.0), "Expanded collapse button should reuse the collapsed expand-button screen position to avoid tower-panel overlap.")
 	game.ui._on_card_hand_toggle_pressed()
 	game.ui._on_card_hand_toggle_pressed()
 	await create_timer(0.25).timeout
 	_assert(game.ui._card_hand_expanded, "Rapid card hand toggles should keep the final expanded state.")
 	_assert(game.ui.card_hand_zone.position == Vector2(592.0, 388.0), "Rapid card hand toggles should restore expanded hand position.")
 	_assert(game.ui.card_hand_zone.size == Vector2(354.0, 146.0), "Rapid card hand toggles should restore expanded hand size.")
+	_assert(game.ui.card_hand_zone.position + game.ui.card_hand_toggle_button.position == Vector2(888.0, 474.0), "Rapid expanded hand layout should keep the collapse button at the expand-button anchor.")
 	game.ui._on_card_hand_toggle_pressed()
 	game.ui._on_card_hand_toggle_pressed()
 	game.ui._on_card_hand_toggle_pressed()
@@ -1096,7 +1331,7 @@ func _run() -> void:
 	_assert(not is_instance_valid(freeze_enemy) or freeze_enemy.speed_multiplier <= 0.20, "Global freeze card should strongly slow or defeat all enemies.")
 	game._clear_enemies_and_projectiles()
 
-	var new_card_ids := ["bait_beacon", "road_spikes", "coin_magnet", "time_warp", "tower_swap", "overload_debt", "panic_button", "bounty_mark", "reroll_cache"]
+	var new_card_ids := ["volley_command", "bait_beacon", "road_spikes", "coin_magnet", "time_warp", "tower_swap", "overload_debt", "panic_button", "bounty_mark", "reroll_cache"]
 	for card_id in new_card_ids:
 		var card_definition := game._get_reward_card_definition(card_id)
 		_assert(not card_definition.is_empty(), "New fun card should exist in the reward card pool: %s" % card_id)
@@ -1354,6 +1589,49 @@ func _run() -> void:
 	_assert(support_built, "Support tower should apply to an existing tower.")
 	_assert(game.tower_layer.get_child_count() == 1, "Support tower should stack instead of creating a second tower node.")
 	_assert(not basic_tower.augmentation_id.is_empty(), "Support tower should mark the target tower as augmented.")
+	_assert(basic_tower.has_augmentation(), "Augmented tower should expose the support layer as a separate upgrade target.")
+	_assert(basic_tower.get_augmentation_level() == 1, "Support layer should start at augmentation level one.")
+	_assert(basic_tower.can_upgrade(), "Augmented towers should still allow upgrading the original tower.")
+	_assert(basic_tower.can_upgrade_augmentation(), "Augmented towers should expose a separate support-layer upgrade action.")
+	_assert(basic_tower.get_upgrade_cost() == 80, "Original tower upgrade cost should remain available after applying augmentation.")
+	_assert(basic_tower.get_augmentation_upgrade_cost() == 320, "Augmentation level-two upgrade should use the expensive support cost.")
+	_assert(not game.ui._format_tower_panel_info_text(basic_tower).contains("增幅塔"), "Base tower panel should not mix support-layer info into the original-tower upgrade area.")
+	_assert(game.ui._format_tower_augmentation_panel_info_text(basic_tower).contains("支援层  等级 1"), "Independent support panel should show support-layer level without repeating augmentation wording.")
+	_assert(game.ui._format_tower_augmentation_panel_info_text(basic_tower).contains("加成：伤害+"), "Independent support panel should show support-layer bonus stats without repeating augmentation wording.")
+	_assert(not game.ui._format_tower_augmentation_panel_info_text(basic_tower).contains("增幅"), "Support-layer upgrade description should avoid the repeated augmentation wording.")
+	_assert(game.ui._get_tower_upgrade_button_text(basic_tower) == "升级（80金币）", "Tower panel main upgrade button should still target the original tower.")
+	_assert(game.ui._get_tower_augmentation_upgrade_button_text(basic_tower) == "升级", "Support-layer upgrade button should use compact wording.")
+	game.ui.show_tower_panel(basic_tower)
+	_assert(game.ui.upgrade_button.visible and game.ui.augmentation_upgrade_button.visible, "Augmented tower panel should show both original-tower and augmentation upgrade buttons.")
+	_assert(game.ui.tower_augmentation_panel.visible, "Augmented tower panel should show an independent support-layer panel below the base-tower controls.")
+	_assert(game.ui.augmentation_upgrade_button.get_parent() == game.ui.tower_augmentation_panel, "Augmentation upgrade button should live inside the independent support-layer panel.")
+	_assert(game.ui.augmentation_upgrade_button.tooltip_text.contains("320金币"), "Support-layer upgrade cost should move to the compact button tooltip.")
+	var rendered_support_button_size := game.ui.augmentation_upgrade_button.size * game.ui.augmentation_upgrade_button.scale
+	_assert(rendered_support_button_size.x < game.ui.tower_augmentation_panel.size.x * 0.70 and rendered_support_button_size.y < 28.0, "Support-layer upgrade button should render smaller than the old full-width button.")
+	_assert(game.ui.augmentation_upgrade_button.position.x >= 140.0 and game.ui.augmentation_upgrade_button.position.y <= 46.0, "Support-layer upgrade button should sit beside the next-level preview line instead of below it.")
+	_assert(game.ui.tower_augmentation_panel.position.y > game.ui.sell_button.position.y, "Independent support-layer panel should sit below the original-tower upgrade window.")
+	var augmentation_damage_before := basic_tower.augmentation_damage_multiplier
+	var augmentation_range_before := basic_tower.augmentation_range_multiplier
+	var augmented_effective_damage_before := basic_tower.get_effective_damage()
+	var augmented_effective_range_before := basic_tower.get_effective_range()
+	var tower_level_before_augmentation_upgrade := basic_tower.level
+	_assert(basic_tower.upgrade_augmentation(), "Calling augmentation upgrade should upgrade only the support layer.")
+	_assert(basic_tower.level == tower_level_before_augmentation_upgrade, "Augmentation upgrade should not accidentally consume the base tower upgrade.")
+	_assert(basic_tower.get_augmentation_level() == 2, "First augmentation upgrade should raise the support layer to level two.")
+	_assert(basic_tower.get_upgrade_cost() == 80, "Original tower upgrade cost should remain unchanged after upgrading augmentation.")
+	_assert(basic_tower.get_augmentation_upgrade_cost() == 560, "Augmentation level-three upgrade should use the expensive support cost.")
+	_assert(basic_tower.augmentation_damage_multiplier > augmentation_damage_before and basic_tower.augmentation_range_multiplier > augmentation_range_before, "Augmentation upgrade should permanently improve damage and range multipliers.")
+	_assert(basic_tower.get_effective_damage() > augmented_effective_damage_before and basic_tower.get_effective_range() > augmented_effective_range_before, "Augmentation upgrade should refresh effective cached tower stats.")
+	_assert(basic_tower.upgrade(), "Calling the normal upgrade on an augmented tower should upgrade the original tower.")
+	_assert(basic_tower.level == tower_level_before_augmentation_upgrade + 1, "Normal upgrade should raise the original tower level even while augmentation can still upgrade.")
+	_assert(basic_tower.get_augmentation_level() == 2, "Normal tower upgrade should not consume the augmentation upgrade.")
+	var permanent_augmented_damage := basic_tower.get_effective_damage()
+	var permanent_augmented_range := basic_tower.get_effective_range()
+	basic_tower.apply_damage_boost(2.0, 0.01)
+	basic_tower.apply_range_boost(2.0, 0.01)
+	basic_tower._process(0.02)
+	_assert(basic_tower.get_effective_damage() == permanent_augmented_damage, "Temporary damage boosts should expire without clearing permanent augmentation damage.")
+	_assert(is_equal_approx(basic_tower.get_effective_range(), permanent_augmented_range), "Temporary range boosts should expire without clearing permanent augmentation range.")
 	build_manager.enter_build_mode("amplifier")
 	_assert(not build_manager.get_build_error(valid_tile).is_empty(), "A tower should reject a second support layer.")
 	var projectile_cache_probe := Projectile.new()
@@ -1433,6 +1711,7 @@ func _run() -> void:
 	var sniper_base_damage := sniper.get_effective_damage()
 	var sniper_base_range := int(sniper.get_effective_range())
 	var sniper_base_interval := sniper.get_effective_attack_interval()
+	_assert(sniper_base_interval >= 1.80, "Sniper tower base attack interval should be slower after the fire-rate nerf.")
 	sniper.apply_damage_boost(1.5, 0.05)
 	sniper.apply_range_boost(1.25, 0.05)
 	sniper.apply_fire_rate_boost(2.0, 0.05)
@@ -1470,12 +1749,16 @@ func _run() -> void:
 	var rapid_upgrade_test := Tower.new()
 	rapid_upgrade_test.setup(game, Vector2i(0, 0), game.get_tower_config("rapid"))
 	var rapid_base_damage := rapid_upgrade_test.damage
+	var rapid_base_interval := rapid_upgrade_test.attack_interval
 	_assert(rapid_upgrade_test._upgrade_costs == [90, 155], "Rapid tower should cache its tower-specific upgrade costs.")
+	_assert(rapid_base_interval <= 0.30, "Rapid tower base attack interval should be lower after the fire-rate tuning.")
 	rapid_upgrade_test.upgrade()
 	_assert(rapid_upgrade_test.damage == rapid_base_damage + 2, "Rapid tower level 2 should keep damage growth modest after the balance pass.")
+	_assert(rapid_upgrade_test.attack_interval < rapid_base_interval * 0.86, "Rapid tower level 2 should further lower its attack interval.")
 	_assert(rapid_upgrade_test.shots_per_attack == 2, "Rapid tower level 2 should unlock double shots.")
 	rapid_upgrade_test.upgrade()
-	_assert(rapid_upgrade_test.damage == rapid_base_damage + 5, "Rapid tower max-level damage growth should stay lower than the old steep ramp.")
+	_assert(rapid_upgrade_test.damage == rapid_base_damage + 2, "Rapid tower level 3 should no longer add projectile damage.")
+	_assert(rapid_upgrade_test.attack_interval < rapid_base_interval * 0.60, "Rapid tower level 3 should become a distinctly faster barrage tower.")
 	_assert(rapid_upgrade_test.shots_per_attack == 3, "Rapid tower level 3 should unlock triple shots.")
 
 	var shotgun_upgrade_test := Tower.new()
@@ -1623,13 +1906,14 @@ func _run() -> void:
 	sniper_pierce_projectile._process(0.11)
 	var second_sniper_hit_damage := 200 - sniper_pierce_second.health
 	_assert(first_sniper_hit_damage == 100, "Sniper projectiles should apply full damage on the first hit.")
-	_assert(second_sniper_hit_damage > 0 and second_sniper_hit_damage < first_sniper_hit_damage, "Sniper piercing damage should fall off after each hit.")
+	_assert(second_sniper_hit_damage == int(round(100.0 * Projectile.SNIPER_DAMAGE_FALLOFF)) and second_sniper_hit_damage <= 60, "Sniper piercing damage should use the reduced falloff multiplier after each hit.")
 	_assert(not sniper_pierce_projectile.is_queued_for_deletion(), "Sniper projectiles should continue after piercing while still visible.")
 	sniper_pierce_projectile.queue_free()
 	sniper_pierce_first.queue_free()
 	sniper_pierce_second.queue_free()
 	await process_frame
 	sniper_upgrade_test.upgrade()
+	_assert(sniper_upgrade_test.attack_interval >= 1.80, "Sniper level-2 upgrade should keep the slower firing rhythm.")
 	sniper_upgrade_test.upgrade()
 	_assert(sniper_upgrade_test.projectile_speed >= 1300.0, "Max-level sniper rounds should be fast enough for full-range shots.")
 	var execute_target := Enemy.new()
@@ -1666,7 +1950,29 @@ func _run() -> void:
 	_assert(wave_type_probe.enemy_types == ["runner", "42", "brute"], "Wave manager should normalize enemy types into clean string ids.")
 	_assert(wave_type_probe._get_wave_enemy_count(0, 0) >= 16, "Multi-route first waves should spawn denser enemy groups.")
 	_assert(wave_type_probe._get_wave_enemy_count(4, 8) >= 48, "Later levels and waves should substantially increase enemy count.")
-	_assert(wave_type_probe._get_wave_spawn_interval(4, 8) <= 0.27, "Later levels and waves should spawn enemies more densely.")
+	_assert(wave_type_probe._get_wave_enemy_count(0, 7) == wave_type_probe._get_wave_enemy_count(0, 6), "Enemy counts should not receive the late-level surge before level eight is cleared.")
+	_assert(wave_type_probe._get_wave_enemy_count(0, 8) > wave_type_probe._get_wave_enemy_count(0, 7), "Enemy counts should surge after level eight.")
+	_assert(wave_type_probe._get_wave_enemy_count(0, 9) >= wave_type_probe._get_wave_enemy_count(0, 8) + 50, "Level ten should add a clear extra enemy-count bonus on top of late-level pressure.")
+	wave_type_probe.setup(game, 1, ["grunt", "runner", "brute", "shield", "taunt", "elite"], 4)
+	var taunt_wave_index := 3
+	var taunt_wave_enemy_count := wave_type_probe._get_wave_enemy_count(taunt_wave_index, 9)
+	wave_type_probe.set("_enemy_count", taunt_wave_enemy_count)
+	var taunt_count := 0
+	for taunt_spawn_index in range(taunt_wave_enemy_count):
+		if wave_type_probe._pick_enemy_type(taunt_wave_index, taunt_spawn_index) == "taunt":
+			taunt_count += 1
+	_assert(taunt_count >= WaveManager.TAUNT_ENEMY_COUNT_MIN and taunt_count <= WaveManager.TAUNT_ENEMY_COUNT_MAX, "Taunt enemy waves should only add about five to six high-health decoy units.")
+	var long_wave_index := 12
+	var long_wave_enemy_count := wave_type_probe._get_wave_enemy_count(long_wave_index, 9)
+	wave_type_probe.set("_enemy_count", long_wave_enemy_count)
+	var long_wave_taunt_count := 0
+	for long_wave_spawn_index in range(long_wave_enemy_count):
+		if wave_type_probe._pick_enemy_type(long_wave_index, long_wave_spawn_index) == "taunt":
+			long_wave_taunt_count += 1
+	_assert(long_wave_taunt_count >= WaveManager.TAUNT_ENEMY_COUNT_MIN and long_wave_taunt_count <= WaveManager.TAUNT_ENEMY_COUNT_MAX, "Taunt enemies should stay capped even if future long levels let all standard enemy types rotate in.")
+	wave_type_probe.setup(game, 1, ["runner", "", 42, "brute"], 2)
+	_assert(wave_type_probe._get_wave_spawn_interval(4, 8) >= 0.34, "Later levels should keep a slower enemy spawn cadence after the pacing adjustment.")
+	_assert(wave_type_probe._get_wave_spawn_interval(4, 8) < wave_type_probe._get_wave_spawn_interval(0, 0), "Later levels and waves should still be denser than the first wave.")
 	_assert(wave_type_probe._get_spawn_batch_size() == 2, "Multi-route waves should spawn one enemy per gate on each spawn tick.")
 	_assert(wave_type_probe._pick_route_index(0, 0, 0) != wave_type_probe._pick_route_index(0, 1, 1), "Spawn batches should distribute enemies across different gates.")
 	_assert(wave_type_probe._get_spawn_reward_bonus(8) == 0, "Early spawn-index reward bonuses should no longer inflate dense waves.")
@@ -1675,13 +1981,13 @@ func _run() -> void:
 	_assert(wave_type_probe._get_spawn_reward_bonus(80) == WaveManager.MAX_SPAWN_REWARD_BONUS, "Spawn-index reward bonuses should be capped.")
 	wave_type_probe.free()
 
-	_assert(game._get_wave_clear_gold_bonus(1) == 17, "First-level wave clear gold should provide a modest stable bonus.")
+	_assert(game._get_wave_clear_gold_bonus(1) == 0, "Wave clears should no longer grant direct gold.")
 	var saved_level_index := game.current_level_index
 	var saved_spawn_paths: Array[Array] = game.spawn_paths
 	var bonus_probe_paths: Array[Array] = [[], [], [], []]
 	game.current_level_index = 9
 	game.spawn_paths = bonus_probe_paths
-	_assert(game._get_wave_clear_gold_bonus(10) == 80, "Late multi-route wave clear gold should stay controlled after the economy nerf.")
+	_assert(game._get_wave_clear_gold_bonus(10) == 0, "Late multi-route wave clears should no longer grant direct gold.")
 	game.current_level_index = saved_level_index
 	game.spawn_paths = saved_spawn_paths
 
@@ -1690,19 +1996,38 @@ func _run() -> void:
 	_assert(start_wave_ok, "Wave manager should start first wave.")
 	_assert(game.wave_manager.current_wave == 1, "Current wave should increment.")
 	_assert(game.enemy_layer.get_child_count() >= 1, "Wave should spawn an enemy on the first process frame.")
-	_assert(game.wave_manager._enemy_wave_stat_cache.has("grunt:0"), "Automatic wave spawning should use cached base stats without building a per-spawn stats dictionary.")
+	var current_wave_stat_cache_key := game.wave_manager._format_enemy_wave_stat_cache_key("grunt", 0, game.current_level_index)
+	_assert(game.wave_manager._enemy_wave_stat_cache.has(current_wave_stat_cache_key), "Automatic wave spawning should use cached base stats without building a per-spawn stats dictionary.")
 	var grunt_multipliers: Dictionary = game.wave_manager._get_enemy_stat_multipliers("grunt")
 	_assert(game.wave_manager._enemy_stat_multipliers.has("grunt"), "Wave manager should cache enemy stat multipliers by type.")
 	_assert(is_same(grunt_multipliers, game.wave_manager._get_enemy_stat_multipliers("grunt")), "Repeated enemy stat multiplier reads should reuse the cached dictionary.")
 	var runner_stats: Dictionary = game.wave_manager.get_enemy_stats("runner", 2, 32)
 	_assert(runner_stats.speed > 100.0 and runner_stats.reward >= 4, "Cached enemy stat multipliers should preserve speed and controlled reward scaling.")
 	var runner_base_stats: Dictionary = game.wave_manager._get_enemy_wave_base_stats("runner", 2)
-	_assert(game.wave_manager._enemy_wave_stat_cache.has("runner:2"), "Wave manager should cache per-wave enemy base stats.")
+	var runner_stat_cache_key := game.wave_manager._format_enemy_wave_stat_cache_key("runner", 2, game.current_level_index)
+	_assert(game.wave_manager._enemy_wave_stat_cache.has(runner_stat_cache_key), "Wave manager should cache per-wave and per-level enemy base stats.")
 	_assert(is_same(runner_base_stats, game.wave_manager._get_enemy_wave_base_stats("runner", 2)), "Repeated per-wave enemy stat reads should reuse the cached dictionary.")
+	var level_one_grunt_stats := game.wave_manager._get_enemy_wave_base_stats("grunt", 0, 0)
+	var level_eight_grunt_stats := game.wave_manager._get_enemy_wave_base_stats("grunt", 0, 7)
+	var level_nine_grunt_stats := game.wave_manager._get_enemy_wave_base_stats("grunt", 0, 8)
+	var level_ten_grunt_stats := game.wave_manager._get_enemy_wave_base_stats("grunt", 0, 9)
+	_assert(int(level_one_grunt_stats.health) < 50, "Enemy base health should be lower in the first level after the early-game pacing adjustment.")
+	_assert(int(level_ten_grunt_stats.health) > int(level_one_grunt_stats.health) * 1.8, "Later levels should apply a stronger enemy health multiplier.")
+	_assert(game.wave_manager._get_level_health_multiplier(9) > game.wave_manager._get_level_health_multiplier(1), "Enemy health multiplier should rise across later levels.")
+	_assert(game.wave_manager._get_level_health_multiplier(8) >= game.wave_manager._get_level_health_multiplier(7) + 0.12, "第8关后敌人血量倍率应出现更明显的后期增幅。")
+	_assert(int(level_nine_grunt_stats.health) > int(level_eight_grunt_stats.health) + 5, "第8关后同波步兵血量应明显变肉。")
+	var taunt_config: Dictionary = game.enemy_type_configs["taunt"]
+	var taunt_health_multiplier := float(taunt_config.get("health_mul", 0.0))
+	var taunt_wave_stats := game.wave_manager.get_enemy_stats("taunt", 3, 0, 9)
+	var grunt_same_wave_stats := game.wave_manager.get_enemy_stats("grunt", 3, 0, 9)
+	_assert(taunt_health_multiplier >= 4.0 and taunt_health_multiplier <= 5.0, "Taunt enemy health multiplier should be tuned as a four-to-five-times decoy.")
+	_assert(float(taunt_wave_stats.health) >= float(grunt_same_wave_stats.health) * 4.0, "Taunt enemy health should be at least four times the same-wave grunt health.")
 	var runner_no_bonus_stats: Dictionary = game.wave_manager.get_enemy_stats("runner", 2, 0)
 	var runner_early_spawn_stats: Dictionary = game.wave_manager.get_enemy_stats("runner", 2, 8)
 	_assert(int(runner_early_spawn_stats.reward) == int(runner_no_bonus_stats.reward), "Early dense-wave spawn rewards should stay flat.")
 	_assert(int(runner_stats.reward) == int(runner_no_bonus_stats.reward), "Spawn index reward bonuses should stay disabled after the economy nerf.")
+	var runner_late_wave_stats := game.wave_manager.get_enemy_stats("runner", 18, 0)
+	_assert(int(runner_late_wave_stats.reward) == int(runner_no_bonus_stats.reward), "Enemy gold rewards should no longer rise in later waves.")
 	game._clear_enemies_and_projectiles()
 	await process_frame
 	var clear_projectile_probe := Projectile.new()
@@ -2089,6 +2414,53 @@ func _hand_card_has_icon_text(ui: GameUI, card_index: int, icon_text: String) ->
 	return false
 
 
+func _status_stack_text_count(ui: GameUI, text: String) -> int:
+	var count := 0
+	for item in ui._status_message_items:
+		var label := item.get("label") as Label
+		if label != null and is_instance_valid(label) and label.text == text:
+			count += 1
+	return count
+
+
+func _status_stack_event_ids_are_unique(ui: GameUI) -> bool:
+	var seen: Dictionary = {}
+	for item in ui._status_message_items:
+		var event_id := int(item.get("event_id", 0))
+		if event_id <= 0:
+			return false
+		if seen.has(event_id):
+			return false
+		seen[event_id] = true
+	return true
+
+
+func _node_has_child_of_type(node: Node, type_name: String) -> bool:
+	if node == null:
+		return false
+	for child in node.get_children():
+		if child.get_class() == type_name:
+			return true
+	return false
+
+
+func _is_two_decimal_seconds_text(text: String) -> bool:
+	var parts := text.split(".")
+	if parts.size() != 2 or parts[1].length() != 2:
+		return false
+	if parts[0].is_empty():
+		return false
+	for character_index in range(parts[0].length()):
+		var code := parts[0].unicode_at(character_index)
+		if code < 48 or code > 57:
+			return false
+	for character_index in range(parts[1].length()):
+		var code := parts[1].unicode_at(character_index)
+		if code < 48 or code > 57:
+			return false
+	return true
+
+
 func _tower_buttons_match_unlock_state(ui: GameUI, current_level_index: int) -> bool:
 	for button in ui._build_option_buttons:
 		if button == null or not is_instance_valid(button):
@@ -2123,6 +2495,162 @@ func _reward_card_rarities_are_valid(game: Main) -> bool:
 		if not _is_valid_reward_card_rarity(rarity):
 			return false
 	return true
+
+
+func _reward_card_descriptions_match_scaled_values(game: Main) -> bool:
+	for card in game._get_reward_card_pool():
+		var base_card := (card as Dictionary).duplicate(true)
+		for rarity in ["white", "blue", "purple", "gold", "red"]:
+			var rarity_card := base_card.duplicate(true)
+			rarity_card["rarity"] = rarity
+			rarity_card["_rarity_scaled"] = false
+			var normalized_card := game._normalize_reward_card(rarity_card)
+			if not _reward_card_description_matches_effect_values(game, normalized_card):
+				push_error("卡牌描述与实际数值不一致：%s/%s => %s" % [
+					str(normalized_card.get("id", "")),
+					rarity,
+					str(normalized_card.get("description", "")),
+				])
+				return false
+	return true
+
+
+func _reward_card_description_matches_effect_values(game: Main, card: Dictionary) -> bool:
+	var description := str(card.get("description", "")).strip_edges()
+	if description.is_empty():
+		return false
+	var card_id := str(card.get("id", ""))
+	match card_id:
+		"tower_boost":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_tower_boost_card_duration(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_tower_boost_card_multiplier(card)),
+			])
+		"heal":
+			return description.contains("%d点" % game._get_heal_card_amount(card))
+		"missile":
+			return description.contains("%d点伤害" % game._get_missile_card_damage(card))
+		"gold":
+			return description.contains("%d金币" % game._get_gold_card_amount(card))
+		"range_boost":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_range_boost_card_duration(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_range_boost_card_multiplier(card)),
+			])
+		"fire_rate_boost":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_fire_rate_boost_card_duration(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_fire_rate_boost_card_multiplier(card)),
+			])
+		"volley_command":
+			return description.contains("%s秒" % _format_test_seconds(game._get_volley_command_card_duration(card)))
+		"cryo":
+			return _text_has_all(description, [
+				"%d点伤害" % game._get_cryo_card_damage(card),
+				"%d%%" % _slow_percent_for_test(game._get_cryo_card_slow_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_cryo_card_duration(card)),
+			])
+		"fortify":
+			return _text_has_all(description, [
+				"%d点" % game._get_fortify_card_max_hp_gain(card),
+				"%d点生命" % game._get_fortify_card_heal(card),
+			])
+		"firestorm":
+			return _text_has_all(description, [
+				"%d点伤害" % game._get_firestorm_card_damage(card),
+				"每%s秒" % _format_test_seconds(game._get_firestorm_card_burn_tick_interval(card)),
+				"%d点" % game._get_firestorm_card_burn_damage_per_tick(card),
+				"持续%s秒" % _format_test_seconds(game._get_firestorm_card_burn_duration(card)),
+			])
+		"global_freeze":
+			return _text_has_all(description, [
+				"%d点伤害" % game._get_global_freeze_card_damage(card),
+				"%d%%" % _slow_percent_for_test(game._get_global_freeze_card_slow_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_global_freeze_card_duration(card)),
+			])
+		"risky_cache":
+			return _text_has_all(description, [
+				"%d%%概率" % _ratio_percent_for_test(game._get_risky_cache_card_jackpot_chance(card)),
+				"%d金币" % game._get_risky_cache_card_jackpot_gold(card),
+				"%d金币" % game._get_risky_cache_card_fallback_gold(card),
+				"%d点伤害" % game._get_risky_cache_card_fallback_damage(card),
+			])
+		"bait_beacon":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_bait_beacon_card_duration(card)),
+				"%d%%" % _ratio_percent_for_test(game._get_bait_beacon_card_strength(card)),
+			])
+		"road_spikes":
+			return _text_has_all(description, [
+				"前%d个" % game._get_road_spike_card_charges(card),
+				"%d点伤害" % game._get_road_spike_card_damage(card),
+				"%d%%" % _slow_percent_for_test(game._get_road_spike_card_slow_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_road_spike_card_duration(card)),
+			])
+		"coin_magnet":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_coin_magnet_card_duration(card)),
+				"%d%%" % _ratio_percent_for_test(game._get_coin_magnet_card_bonus_ratio(card)),
+			])
+		"time_warp":
+			return _text_has_all(description, [
+				"%d%%" % _slow_percent_for_test(game._get_time_warp_card_slow_multiplier(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_time_warp_card_haste_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_time_warp_card_duration(card)),
+			])
+		"tower_swap":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_tower_swap_card_duration(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_tower_swap_card_damage_multiplier(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_tower_swap_card_fire_rate_multiplier(card)),
+			])
+		"overload_debt":
+			return _text_has_all(description, [
+				"%s秒" % _format_test_seconds(game._get_overload_debt_card_duration(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_overload_debt_card_damage_multiplier(card)),
+				"%d%%" % _multiplier_bonus_percent_for_test(game._get_overload_debt_card_fire_rate_multiplier(card)),
+				"%d%%" % _slow_percent_for_test(game._get_overload_debt_card_debt_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_overload_debt_card_debt_duration(card)),
+			])
+		"panic_button":
+			return _text_has_all(description, [
+				"%d点" % game._get_panic_button_card_heal(card),
+				"%d%%生命" % _ratio_percent_for_test(game._get_panic_button_card_low_health_ratio(card)),
+				"%d点" % game._get_panic_button_card_panic_heal(card),
+				"%d%%" % _slow_percent_for_test(game._get_panic_button_card_slow_multiplier(card)),
+				"%s秒" % _format_test_seconds(game._get_panic_button_card_duration(card)),
+			])
+		"bounty_mark":
+			return description.contains("%d金币" % game._get_bounty_mark_card_bonus_gold(card))
+		"reroll_cache":
+			return description.contains("稀有度更高")
+	return false
+
+
+func _text_has_all(text: String, snippets: Array) -> bool:
+	for snippet in snippets:
+		if not text.contains(str(snippet)):
+			return false
+	return true
+
+
+func _format_test_seconds(value: float) -> String:
+	var rounded_value := roundf(value)
+	if absf(value - rounded_value) < 0.05:
+		return str(int(rounded_value))
+	return "%.1f" % value
+
+
+func _multiplier_bonus_percent_for_test(multiplier: float) -> int:
+	return maxi(0, int(roundi((multiplier - 1.0) * 100.0)))
+
+
+func _slow_percent_for_test(multiplier: float) -> int:
+	return maxi(0, int(roundi((1.0 - multiplier) * 100.0)))
+
+
+func _ratio_percent_for_test(ratio: float) -> int:
+	return maxi(0, int(roundi(ratio * 100.0)))
 
 
 func _map_renderer_decorations_avoid_roads(game: Main) -> bool:
@@ -2257,6 +2785,13 @@ func _is_valid_reward_card_rarity(rarity: String) -> bool:
 	return valid_rarities.has(rarity)
 
 
+func _reward_card_hand_contains_id(game: Main, card_id: String) -> bool:
+	for card in game._card_hand:
+		if str(card.get("id", "")) == card_id:
+			return true
+	return false
+
+
 func _contains_ascii_letter(text: String) -> bool:
 	for index in range(text.length()):
 		var code := text.unicode_at(index)
@@ -2269,6 +2804,7 @@ func _finish() -> void:
 	if _finished:
 		return
 	_finished = true
+	Engine.time_scale = 1.0
 	_restore_level_start_save_snapshot_for_test()
 	var exit_code := 0
 	if _failures.is_empty():

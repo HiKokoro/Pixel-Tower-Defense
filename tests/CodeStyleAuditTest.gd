@@ -647,6 +647,8 @@ const BANNED_FILE_TOKENS: Dictionary = {
 		"const PROJECTILE_EFFECTIVE_RANGE_MULTIPLIER: float = 15.50": "Tower should keep non-sniper projectiles traveling farther after the ver0.40.0 heavy-weapon pass.",
 		"const PROJECTILE_EFFECTIVE_RANGE_MULTIPLIER: float = 19.00": "Tower should keep non-sniper projectiles traveling farther after the ver0.41.0 heavy-projectile pass.",
 		"const PROJECTILE_EFFECTIVE_RANGE_MULTIPLIER: float = 24.00": "Tower should keep non-sniper projectiles traveling farther after the ver0.42.0 heavy-weapon distance pass.",
+		"ice_slow_duration = 2.2": "Ice branch should keep the longer control duration after the balance pass.",
+		"damage += 3\n\t\t\tattack_range += scale_world_range(22.0)\n\t\t\tattack_interval *= 0.70\n\t\t\tshots_per_attack = 3": "Rapid tower level 3 should not add projectile damage after the balance pass.",
 		"damage += 1\n\t\t\tattack_range += 22.0\n\t\t\tattack_interval *= 0.78\n\t\t\tshots_per_attack = 3": "Rapid tower level 3 should not regain single-shot damage growth.",
 		"attack_interval *= 0.96\n\t\t\tshots_per_attack = 2": "Rapid tower level 2 should keep its toned-down volley growth.",
 		"attack_interval *= 0.90\n\t\t\tshots_per_attack = 3": "Rapid tower level 3 should keep its toned-down volley growth.",

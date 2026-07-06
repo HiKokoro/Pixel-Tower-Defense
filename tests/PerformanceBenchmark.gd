@@ -5,6 +5,7 @@ const TARGET_TOWERS: int = 48
 const TARGET_ENEMIES: int = 180
 const WARMUP_FRAMES: int = 60
 const SAMPLE_FRAMES: int = 240
+const BENCHMARK_RUNS: int = 3
 
 var _failures: Array[String] = []
 
@@ -16,9 +17,23 @@ func _initialize() -> void:
 func _run() -> void:
 	var main_scene := load("res://scenes/Main.tscn") as PackedScene
 	_assert(main_scene != null, "Main scene should load for benchmark.")
+	if main_scene == null:
+		quit(1)
+		return
 
+	for run_index in range(BENCHMARK_RUNS):
+		print("[PERF] run=%d/%d" % [run_index + 1, BENCHMARK_RUNS])
+		await _run_benchmark_sample(main_scene, run_index)
+
+	print("[PERF] result=%s" % ("PASS" if _failures.is_empty() else "FAIL"))
+	quit(0 if _failures.is_empty() else 1)
+
+
+func _run_benchmark_sample(main_scene: PackedScene, run_index: int) -> void:
 	var game := main_scene.instantiate() as Main
 	_assert(game != null, "Main scene should instantiate for benchmark.")
+	if game == null:
+		return
 	root.add_child(game)
 	await process_frame
 	await process_frame
@@ -26,7 +41,13 @@ func _run() -> void:
 	var setup_start := Time.get_ticks_usec()
 	game.highest_unlocked_level_index = TARGET_LEVEL_INDEX
 	game.ui.set_highest_unlocked_level(game.highest_unlocked_level_index)
-	game._on_level_selected(TARGET_LEVEL_INDEX)
+	# 压力测试只需要构造目标关卡场景，不应走会写入 user:// 继续游戏快照的选关入口。
+	game._load_level(TARGET_LEVEL_INDEX, false)
+	game.has_game_started = true
+	game.ui.set_card_hand_available(true)
+	game.ui.set_tower_unlock_level(game.current_level_index)
+	game.ui.hide_start_screen()
+	game._refresh_ui()
 	await process_frame
 	game.gold = 999999
 
@@ -52,7 +73,8 @@ func _run() -> void:
 	var active_particles := game.get_world_particle_count()
 	var active_towers := game.get_active_towers().size()
 
-	print("[PERF] level=%d towers=%d enemies_spawned=%d active_enemies=%d projectiles=%d particles=%d" % [
+	print("[PERF] run=%d level=%d towers=%d enemies_spawned=%d active_enemies=%d projectiles=%d particles=%d" % [
+		run_index + 1,
 		TARGET_LEVEL_INDEX + 1,
 		active_towers,
 		enemies_spawned,
@@ -60,18 +82,17 @@ func _run() -> void:
 		active_projectiles,
 		active_particles,
 	])
-	print("[PERF] setup_ms=%.2f sample_ms=%.2f frames=%d" % [setup_ms, sample_ms, SAMPLE_FRAMES])
-	print("[PERF] avg_frame_ms=%.3f p95_frame_ms=%.3f max_frame_ms=%.3f estimated_fps=%.1f" % [
+	print("[PERF] run=%d setup_ms=%.2f sample_ms=%.2f frames=%d" % [run_index + 1, setup_ms, sample_ms, SAMPLE_FRAMES])
+	print("[PERF] run=%d avg_frame_ms=%.3f p95_frame_ms=%.3f max_frame_ms=%.3f estimated_fps=%.1f" % [
+		run_index + 1,
 		float(summary["avg_ms"]),
 		float(summary["p95_ms"]),
 		float(summary["max_ms"]),
 		1000.0 / maxf(float(summary["avg_ms"]), 0.001),
 	])
-	print("[PERF] result=%s" % ("PASS" if _failures.is_empty() else "FAIL"))
 
 	game.queue_free()
 	await process_frame
-	quit(0 if _failures.is_empty() else 1)
 
 
 func _build_towers(game: Main, target_count: int) -> int:

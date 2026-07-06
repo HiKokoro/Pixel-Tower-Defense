@@ -28,10 +28,18 @@ const CONFIG_MAX_SPREAD: float = 180.0
 const CONFIG_MAX_SPLASH_RATIO: float = 10.0
 const CONFIG_MAX_PIERCE: int = 64
 const CONFIG_MAX_MULTIPLIER: float = 5.0
+const AUGMENTATION_MAX_LEVEL: int = 3
+const AUGMENTATION_UPGRADE_COSTS: Array[int] = [320, 560]
+const AUGMENTATION_LEVEL_TWO_DAMAGE_MULTIPLIER: float = 1.16
+const AUGMENTATION_LEVEL_TWO_RANGE_MULTIPLIER: float = 1.08
+const AUGMENTATION_LEVEL_THREE_DAMAGE_MULTIPLIER: float = 1.14
+const AUGMENTATION_LEVEL_THREE_RANGE_MULTIPLIER: float = 1.06
 const DEFAULT_TOWER_DISPLAY_NAME := "基础塔"
 const DEFAULT_AUGMENTATION_DISPLAY_NAME := "增幅塔"
 const DEFAULT_TRAIT_TEXT := "标准弹道"
 const MAX_LEVEL_PREVIEW_TEXT := "已达到最终形态"
+const AUGMENTATION_LEVEL_TWO_TRAIT_NAME := "稳定谐振"
+const AUGMENTATION_LEVEL_THREE_TRAIT_NAME := "矩阵过载"
 const BASIC_LEVEL_TWO_TRAIT_NAME := "强化核心"
 const BASIC_LEVEL_THREE_TRAIT_NAME := "元素分支"
 const BASIC_FIRE_BRANCH_ID := "fire"
@@ -47,12 +55,16 @@ const CANNON_LEVEL_TWO_TRAIT_NAME := "爆破弹头"
 const CANNON_LEVEL_THREE_TRAIT_NAME := "震荡核心"
 const SNIPER_LEVEL_TWO_TRAIT_NAME := "校准透镜"
 const SNIPER_LEVEL_THREE_TRAIT_NAME := "处决射击"
+const CLUSTER_LEVEL_TWO_TRAIT_NAME := "蜂群装填"
+const CLUSTER_LEVEL_THREE_TRAIT_NAME := "裂爆弹头"
 const RAPID_BASE_TRAIT_TEXT := "单管高速射击"
 const CANNON_BASE_TRAIT_TEXT := "重弹单体打击"
 const SNIPER_BASE_TRAIT_TEXT := "超远距离点杀"
+const CLUSTER_BASE_TRAIT_TEXT := "多枚跟踪弹头齐射"
 const BASIC_BASE_TRAIT_TEXT := "均衡防御火力"
 const UPGRADE_PREVIEW_TEMPLATE := "等级%d：%s"
 const AUGMENTATION_TRAIT_LINE_TEMPLATE := "\n增幅：%s"
+const AUGMENTATION_TRAIT_TEMPLATE := "\n增幅：%s 等级%d（伤害+%d%%，射程+%d%%）"
 const BASIC_LEVEL_TWO_TRAIT_TEMPLATE := "%s：射程扩大，装填加快"
 const BASIC_LEVEL_THREE_TRAIT_TEMPLATE := "%s：可分支为持续灼烧或寒霜减速"
 const BASIC_FIRE_TRAIT_TEXT := "火塔：命中后造成持续烧伤"
@@ -65,6 +77,8 @@ const CANNON_LEVEL_TWO_TRAIT_TEMPLATE := "%s：爆破半径扩大，溅射伤害
 const CANNON_LEVEL_THREE_TRAIT_TEMPLATE := "%s：大范围高强度溅射炮击"
 const SNIPER_LEVEL_TWO_TRAIT_TEMPLATE := "%s：极大提高单发伤害和射程"
 const SNIPER_LEVEL_THREE_TRAIT_TEMPLATE := "%s：对低生命敌人造成致命伤害"
+const CLUSTER_LEVEL_TWO_TRAIT_TEMPLATE := "%s：增加弹头数量和单枚伤害"
+const CLUSTER_LEVEL_THREE_TRAIT_TEMPLATE := "%s：弹头伤害继续提高，并解锁小范围爆炸"
 
 var game: Main
 var grid_position: Vector2i = Vector2i.ZERO
@@ -86,6 +100,8 @@ var range_multiplier: float = 1.0
 var range_boost_time: float = 0.0
 var fire_rate_multiplier: float = 1.0
 var fire_rate_boost_time: float = 0.0
+var augmentation_damage_multiplier: float = 1.0
+var augmentation_range_multiplier: float = 1.0
 var shots_per_attack: int = 1
 var splash_radius: float = 0.0
 var splash_damage_ratio: float = 0.0
@@ -103,11 +119,15 @@ var ice_slow_duration: float = 0.0
 
 var augmentation_id: String = ""
 var augmentation_name: String = ""
+var augmentation_level: int = 0
 var stun_time: float = 0.0
 
 var _cooldown: float = 0.0
 var _current_target: Enemy
 var _barrel_direction: Vector2 = Vector2.UP
+var forced_fire_time: float = 0.0
+var forced_fire_target_position: Vector2 = Vector2.ZERO
+var _forced_fire_direction: Vector2 = Vector2.ZERO
 var _target_scan_timer: float = 0.0
 var _target_scan_interval: float = TARGET_SCAN_INTERVAL
 var _effective_range: float = BASE_RANGE
@@ -146,6 +166,11 @@ func setup(game_ref: Main, tower_grid_position: Vector2i, type_config: Dictionar
 	burn_duration = 0.0
 	ice_slow_multiplier = 1.0
 	ice_slow_duration = 0.0
+	augmentation_id = ""
+	augmentation_name = ""
+	augmentation_level = 0
+	augmentation_damage_multiplier = 1.0
+	augmentation_range_multiplier = 1.0
 	_upgrade_costs = _get_upgrade_costs()
 	_refresh_range_cache()
 	_refresh_damage_cache()
@@ -213,6 +238,21 @@ func _process(delta: float) -> void:
 			redraw_needed = true
 
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	if forced_fire_time > 0.0:
+		forced_fire_time = maxf(forced_fire_time - delta, 0.0)
+		if _forced_fire_direction != Vector2.ZERO and absf(_barrel_direction.angle_to(_forced_fire_direction)) > 0.025:
+			_barrel_direction = _forced_fire_direction
+			redraw_needed = true
+		if _cooldown <= 0.0 and forced_fire_time > 0.0:
+			_fire_projectiles(_forced_fire_direction)
+			_cooldown = get_effective_attack_interval()
+		if forced_fire_time <= 0.0:
+			_forced_fire_direction = Vector2.ZERO
+			redraw_needed = true
+		if redraw_needed:
+			queue_redraw()
+		return
+
 	_target_scan_timer -= delta
 	var has_valid_target := _is_target_valid(_current_target)
 	if _target_scan_timer <= 0.0 or not has_valid_target:
@@ -276,6 +316,8 @@ func upgrade(branch_id: String = "") -> bool:
 		basic_branch = selected_basic_branch
 
 	_apply_upgrade_stats()
+	if has_augmentation():
+		_update_augmentation_trait_line()
 	_refresh_range_cache()
 	_refresh_damage_cache()
 	_refresh_target_scan_interval()
@@ -296,6 +338,26 @@ func get_upgrade_preview() -> String:
 		return _get_basic_branch_preview_text()
 
 	return _format_upgrade_preview_text(level + 1, _get_upgrade_preview_trait_name(tower_type_id, level + 1))
+
+
+func can_upgrade_augmentation() -> bool:
+	return _has_pending_augmentation_upgrade()
+
+
+func get_augmentation_upgrade_cost() -> int:
+	return _get_augmentation_upgrade_cost() if can_upgrade_augmentation() else 0
+
+
+func get_augmentation_upgrade_preview() -> String:
+	if not has_augmentation():
+		return ""
+	if not can_upgrade_augmentation():
+		return "已满级"
+	return _format_upgrade_preview_text(augmentation_level + 1, _get_augmentation_upgrade_trait_name(augmentation_level + 1))
+
+
+func upgrade_augmentation() -> bool:
+	return _upgrade_augmentation()
 
 
 func get_sell_value() -> int:
@@ -365,15 +427,40 @@ func apply_augmentation(type_config: Dictionary) -> bool:
 		return false
 	augmentation_id = _get_config_id(type_config, "id", "amplifier")
 	augmentation_name = _get_augmentation_display_name(type_config)
-	damage_multiplier *= _get_config_float(type_config, "damage_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
-	range_multiplier *= _get_config_float(type_config, "range_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
+	augmentation_level = 1
+	augmentation_damage_multiplier = _get_config_float(type_config, "damage_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
+	augmentation_range_multiplier = _get_config_float(type_config, "range_multiplier", 1.0, 0.0, CONFIG_MAX_MULTIPLIER)
 	total_invested += _get_config_int(type_config, "cost", 0, 0, CONFIG_MAX_COST)
-	level_trait += _format_augmentation_trait_line_text(augmentation_name)
+	_update_augmentation_trait_line()
 	_refresh_range_cache()
 	_refresh_damage_cache()
 	_refresh_target_scan_interval()
 	queue_redraw()
 	return true
+
+
+func has_augmentation() -> bool:
+	return not augmentation_id.is_empty()
+
+
+func get_augmentation_display_name() -> String:
+	return augmentation_name if not augmentation_name.strip_edges().is_empty() else _get_default_augmentation_display_name()
+
+
+func get_augmentation_level() -> int:
+	return augmentation_level
+
+
+func get_augmentation_damage_bonus_percent() -> int:
+	return int(round((augmentation_damage_multiplier - 1.0) * 100.0))
+
+
+func get_augmentation_range_bonus_percent() -> int:
+	return int(round((augmentation_range_multiplier - 1.0) * 100.0))
+
+
+func is_upgrading_augmentation() -> bool:
+	return _has_pending_augmentation_upgrade()
 
 
 func _get_tower_display_name(type_config: Dictionary) -> String:
@@ -414,10 +501,14 @@ func _get_upgrade_preview_trait_name(type_id: String, next_level: int) -> String
 	match type_id:
 		"rapid":
 			return _get_rapid_upgrade_trait_name(next_level)
+		"shotgun":
+			return _get_shotgun_upgrade_trait_name(next_level)
 		"cannon":
 			return _get_cannon_upgrade_trait_name(next_level)
 		"sniper":
 			return _get_sniper_upgrade_trait_name(next_level)
+		"cluster":
+			return _get_cluster_upgrade_trait_name(next_level)
 		_:
 			return _get_basic_upgrade_trait_name(next_level)
 
@@ -452,8 +543,67 @@ func _get_sniper_upgrade_trait_name(next_level: int) -> String:
 	return SNIPER_LEVEL_THREE_TRAIT_NAME
 
 
+func _get_cluster_upgrade_trait_name(next_level: int) -> String:
+	if next_level <= 2:
+		return CLUSTER_LEVEL_TWO_TRAIT_NAME
+	return CLUSTER_LEVEL_THREE_TRAIT_NAME
+
+
 func _format_augmentation_trait_line_text(augmentation_display_name: String) -> String:
 	return AUGMENTATION_TRAIT_LINE_TEMPLATE % augmentation_display_name
+
+
+func _format_augmentation_trait_text() -> String:
+	return AUGMENTATION_TRAIT_TEMPLATE % [
+		get_augmentation_display_name(),
+		maxi(augmentation_level, 1),
+		get_augmentation_damage_bonus_percent(),
+		get_augmentation_range_bonus_percent(),
+	]
+
+
+func _get_augmentation_upgrade_trait_name(next_level: int) -> String:
+	return AUGMENTATION_LEVEL_TWO_TRAIT_NAME if next_level <= 2 else AUGMENTATION_LEVEL_THREE_TRAIT_NAME
+
+
+func _has_pending_augmentation_upgrade() -> bool:
+	return has_augmentation() and augmentation_level > 0 and augmentation_level < AUGMENTATION_MAX_LEVEL
+
+
+func _get_augmentation_upgrade_cost() -> int:
+	var cost_index := clampi(augmentation_level - 1, 0, AUGMENTATION_UPGRADE_COSTS.size() - 1)
+	return AUGMENTATION_UPGRADE_COSTS[cost_index]
+
+
+func _upgrade_augmentation() -> bool:
+	if not _has_pending_augmentation_upgrade():
+		return false
+
+	var cost := _get_augmentation_upgrade_cost()
+	total_invested += cost
+	augmentation_level += 1
+	match augmentation_level:
+		2:
+			augmentation_damage_multiplier *= AUGMENTATION_LEVEL_TWO_DAMAGE_MULTIPLIER
+			augmentation_range_multiplier *= AUGMENTATION_LEVEL_TWO_RANGE_MULTIPLIER
+		3:
+			augmentation_damage_multiplier *= AUGMENTATION_LEVEL_THREE_DAMAGE_MULTIPLIER
+			augmentation_range_multiplier *= AUGMENTATION_LEVEL_THREE_RANGE_MULTIPLIER
+	_update_augmentation_trait_line()
+	_refresh_range_cache()
+	_refresh_damage_cache()
+	_refresh_target_scan_interval()
+	_target_scan_timer = 0.0
+	queue_redraw()
+	return true
+
+
+func _update_augmentation_trait_line() -> void:
+	var base_trait := level_trait
+	var split_index := base_trait.find("\n增幅：")
+	if split_index >= 0:
+		base_trait = base_trait.substr(0, split_index)
+	level_trait = "%s%s" % [base_trait, _format_augmentation_trait_text()]
 
 
 func _get_base_trait_text(type_id: String) -> String:
@@ -464,6 +614,8 @@ func _get_base_trait_text(type_id: String) -> String:
 			return _get_cannon_base_trait_text()
 		"sniper":
 			return _get_sniper_base_trait_text()
+		"cluster":
+			return _get_cluster_base_trait_text()
 		_:
 			return _get_basic_base_trait_text()
 
@@ -478,6 +630,10 @@ func _get_cannon_base_trait_text() -> String:
 
 func _get_sniper_base_trait_text() -> String:
 	return SNIPER_BASE_TRAIT_TEXT
+
+
+func _get_cluster_base_trait_text() -> String:
+	return CLUSTER_BASE_TRAIT_TEXT
 
 
 func _get_basic_base_trait_text() -> String:
@@ -544,9 +700,46 @@ func _format_sniper_level_three_trait_text() -> String:
 	return SNIPER_LEVEL_THREE_TRAIT_TEMPLATE % _get_sniper_upgrade_trait_name(3)
 
 
+func _format_cluster_level_two_trait_text() -> String:
+	return CLUSTER_LEVEL_TWO_TRAIT_TEMPLATE % _get_cluster_upgrade_trait_name(2)
+
+
+func _format_cluster_level_three_trait_text() -> String:
+	return CLUSTER_LEVEL_THREE_TRAIT_TEMPLATE % _get_cluster_upgrade_trait_name(3)
+
+
 func apply_stun(duration: float) -> void:
 	stun_time = maxf(stun_time, duration)
 	queue_redraw()
+
+
+func can_receive_forced_fire_command() -> bool:
+	return tower_type_id != "amplifier" and damage > 0 and attack_interval > 0.0
+
+
+func apply_forced_fire_direction(target_position: Vector2, duration: float) -> void:
+	if not can_receive_forced_fire_command() or duration <= 0.0:
+		return
+
+	update_forced_fire_target_position(target_position)
+	forced_fire_time = maxf(forced_fire_time, duration)
+	_current_target = null
+	_target_scan_timer = 0.0
+	queue_redraw()
+
+
+func update_forced_fire_target_position(target_position: Vector2) -> void:
+	forced_fire_target_position = target_position
+	var next_direction := (target_position - global_position).normalized()
+	if next_direction == Vector2.ZERO:
+		next_direction = _forced_fire_direction if _forced_fire_direction != Vector2.ZERO else _barrel_direction
+	if next_direction == Vector2.ZERO:
+		next_direction = Vector2.UP
+	if _forced_fire_direction == Vector2.ZERO or absf(_forced_fire_direction.angle_to(next_direction)) > 0.001:
+		_forced_fire_direction = next_direction
+		queue_redraw()
+	else:
+		_forced_fire_direction = next_direction
 
 
 func get_effective_range() -> float:
@@ -579,6 +772,8 @@ func _get_recoil_duration() -> float:
 			duration_multiplier = 1.75
 		"sniper":
 			duration_multiplier = 1.50
+		"cluster":
+			duration_multiplier = 1.20
 		"rapid":
 			duration_multiplier = 0.82
 		_:
@@ -597,6 +792,8 @@ func _get_recoil_distance(shot_count: int) -> float:
 			base_distance = 9.2
 		"sniper":
 			base_distance = 6.2
+		"cluster":
+			base_distance = 7.4
 		_:
 			base_distance = 4.0
 
@@ -631,13 +828,14 @@ func _refresh_target_scan_interval() -> void:
 
 
 func _refresh_range_cache() -> void:
-	_effective_range = attack_range * range_multiplier
+	_effective_range = attack_range * augmentation_range_multiplier * range_multiplier
 	_effective_range_sq = _effective_range * _effective_range
 
 
 func _refresh_damage_cache() -> void:
-	_effective_damage = int(round(float(damage) * damage_multiplier))
-	_effective_splash_damage = int(round(float(damage) * splash_damage_ratio * damage_multiplier))
+	var permanent_damage := float(damage) * augmentation_damage_multiplier
+	_effective_damage = int(round(permanent_damage * damage_multiplier))
+	_effective_splash_damage = int(round(permanent_damage * splash_damage_ratio * damage_multiplier))
 
 
 func _is_target_valid(enemy) -> bool:
@@ -686,8 +884,14 @@ func _find_target() -> Enemy:
 
 
 func _fire_at(enemy: Enemy) -> void:
-	var shot_count := maxi(shots_per_attack, 1)
 	var direction := (enemy.global_position - global_position).normalized()
+	if direction == Vector2.ZERO:
+		direction = Vector2.UP
+	_fire_projectiles(direction, enemy)
+
+
+func _fire_projectiles(direction: Vector2, target_enemy: Enemy = null) -> void:
+	var shot_count := maxi(shots_per_attack, 1)
 	if direction == Vector2.ZERO:
 		direction = Vector2.UP
 	var side := direction.orthogonal()
@@ -702,9 +906,10 @@ func _fire_at(enemy: Enemy) -> void:
 			var spread_offset := (float(index) - float(shot_count - 1) * 0.5) / float(shot_count - 1)
 			shot_direction = direction.rotated(spread_offset * spread_angle).normalized()
 		projectile.global_position = global_position + side * offset
+		var projectile_target := target_enemy if tower_type_id == "cluster" and is_instance_valid(target_enemy) else null
 		projectile.setup(
-			null,
-			_get_attack_damage(enemy),
+			projectile_target,
+			_get_attack_damage(target_enemy),
 			projectile_speed,
 			splash_radius,
 			_effective_splash_damage,
@@ -714,6 +919,8 @@ func _fire_at(enemy: Enemy) -> void:
 			_get_projectile_max_distance(),
 			_get_projectile_visual_profile()
 		)
+		if tower_type_id == "cluster" and projectile_target != null:
+			projectile.setup_homing(true)
 		projectile.setup_status_effect(_get_projectile_status_effect())
 		game.add_projectile(projectile)
 		game.spawn_muzzle_particles(global_position + shot_direction * 25.0 + side * offset, shot_direction, projectile_color)
@@ -751,6 +958,11 @@ func _spawn_fire_visuals(direction: Vector2, shot_count: int) -> void:
 			effect_radius = 42.0
 			effect_duration = 0.18
 			effect_width = 4.0
+		"cluster":
+			profile = "rapid"
+			effect_name = "ClusterMuzzleVolley"
+			effect_radius = 44.0
+			effect_duration = 0.16
 		"sniper":
 			profile = "sniper"
 			effect_name = "SniperMuzzleTrace"
@@ -797,6 +1009,8 @@ func _get_projectile_visual_profile() -> String:
 			return Projectile.VISUAL_CANNON
 		"sniper":
 			return Projectile.VISUAL_SNIPER
+		"cluster":
+			return Projectile.VISUAL_CLUSTER
 		_:
 			return Projectile.VISUAL_BASIC
 
@@ -840,6 +1054,8 @@ func _get_upgrade_costs() -> Array[int]:
 			return [120, 205]
 		"sniper":
 			return [130, 220]
+		"cluster":
+			return [145, 245]
 		_:
 			return [80, 145]
 
@@ -858,6 +1074,8 @@ func _apply_upgrade_stats() -> void:
 			_apply_cannon_upgrade()
 		"sniper":
 			_apply_sniper_upgrade()
+		"cluster":
+			_apply_cluster_upgrade()
 		_:
 			_apply_basic_upgrade()
 
@@ -882,7 +1100,7 @@ func _apply_basic_upgrade() -> void:
 					barrel_color = Color(0.05, 0.13, 0.20)
 					projectile_color = Color(0.56, 0.92, 1.0)
 					ice_slow_multiplier = 0.52
-					ice_slow_duration = 2.2
+					ice_slow_duration = 3.0
 					level_trait = _format_basic_ice_trait_text()
 				_:
 					basic_branch = BASIC_FIRE_BRANCH_ID
@@ -905,13 +1123,12 @@ func _apply_rapid_upgrade() -> void:
 		2:
 			damage += 2
 			attack_range += scale_world_range(18.0)
-			attack_interval *= 0.90
+			attack_interval *= 0.84
 			shots_per_attack = 2
 			level_trait = _format_rapid_level_two_trait_text()
 		3:
-			damage += 3
 			attack_range += scale_world_range(22.0)
-			attack_interval *= 0.78
+			attack_interval *= 0.66
 			shots_per_attack = 3
 			level_trait = _format_rapid_level_three_trait_text()
 
@@ -957,7 +1174,7 @@ func _apply_sniper_upgrade() -> void:
 			damage += 34
 			attack_range += scale_world_range(48.0)
 			projectile_speed += 180.0
-			attack_interval *= 0.94
+			attack_interval *= 0.98
 			level_trait = _format_sniper_level_two_trait_text()
 		3:
 			damage += 58
@@ -966,6 +1183,28 @@ func _apply_sniper_upgrade() -> void:
 			execute_threshold = 0.35
 			execute_multiplier = 1.9
 			level_trait = _format_sniper_level_three_trait_text()
+
+
+func _apply_cluster_upgrade() -> void:
+	match level:
+		2:
+			damage += 3
+			attack_range += scale_world_range(24.0)
+			attack_interval *= 0.90
+			projectile_speed += 28.0
+			shots_per_attack = 8
+			spread_angle = 0.46
+			level_trait = _format_cluster_level_two_trait_text()
+		3:
+			damage += 1
+			attack_range += scale_world_range(26.0)
+			attack_interval *= 0.88
+			projectile_speed += 22.0
+			shots_per_attack = 10
+			spread_angle = 0.56
+			splash_radius = scale_world_range(46.0)
+			splash_damage_ratio = 0.50
+			level_trait = _format_cluster_level_three_trait_text()
 
 
 func _draw() -> void:
@@ -1006,6 +1245,8 @@ func _draw() -> void:
 			_draw_cannon_tower(barrel_direction)
 		"sniper":
 			_draw_sniper_tower(barrel_direction)
+		"cluster":
+			_draw_cluster_tower(barrel_direction)
 		_:
 			_draw_basic_tower(barrel_direction)
 
@@ -1145,6 +1386,70 @@ func _draw_sniper_tower(direction: Vector2) -> void:
 		_draw_rect_center(side * 20.0 + direction * -6.0, Vector2(5.0, 16.0), Color(0.94, 0.90, 1.0, 0.72))
 
 
+func _draw_cluster_tower(direction: Vector2) -> void:
+	var side := direction.orthogonal()
+	var accent := Color(1.0, 0.76, 0.28)
+	_draw_64px_heavy_chassis(tower_color, accent, Color(0.11, 0.09, 0.055))
+	_draw_rect_center(Vector2(0.0, 14.0), Vector2(40.0, 8.0), tower_color.darkened(0.22))
+	_draw_rect_center(Vector2(-24.0, -8.0), Vector2(7.0, 25.0), accent.darkened(0.10))
+	_draw_rect_center(Vector2(24.0, -8.0), Vector2(7.0, 25.0), accent.darkened(0.10))
+	_draw_rect_center(-direction * 17.0, Vector2(30.0, 10.0), barrel_color.lightened(0.08))
+	_draw_rect_center(direction * 3.0, Vector2(32.0, 22.0), tower_color.lightened(0.08))
+
+	var cell_centers := _get_cluster_launcher_cell_centers()
+	for local_center in cell_centers:
+		var cell_center := side * float(local_center.x) + direction * float(local_center.y)
+		_draw_cluster_launcher_cell(cell_center, direction, side, 5.6 if level < 3 else 5.2, barrel_color, accent)
+
+	if level >= 2:
+		for marker in [Vector2(-14.0, -23.0), Vector2(0.0, -25.0), Vector2(14.0, -23.0)]:
+			_draw_rect_center(marker, Vector2(7.0, 7.0), projectile_color.lightened(0.12))
+	if splash_radius > 0.0:
+		draw_arc(Vector2.ZERO, 28.0, 0.0, TAU, 36, Color(1.0, 0.56, 0.18, 0.56), 3.0, false)
+		_draw_rect_center(Vector2.ZERO, Vector2(22.0, 22.0), tower_color.lightened(0.16))
+		_draw_rect_center(direction * 24.0, Vector2(12.0, 6.0), projectile_color.lightened(0.10))
+	else:
+		_draw_rect_center(Vector2.ZERO, Vector2(18.0, 18.0), tower_color.lightened(0.10))
+	_draw_rect_center(Vector2.ZERO, Vector2(9.0 if level < 3 else 12.0, 9.0 if level < 3 else 12.0), projectile_color)
+
+
+func _get_cluster_launcher_cell_centers() -> Array[Vector2]:
+	if level >= 3:
+		return [
+			Vector2(-18.0, 15.0), Vector2(-6.0, 15.0), Vector2(6.0, 15.0), Vector2(18.0, 15.0),
+			Vector2(-12.0, 5.0), Vector2(0.0, 5.0), Vector2(12.0, 5.0),
+			Vector2(-18.0, -5.0), Vector2(0.0, -5.0), Vector2(18.0, -5.0),
+		]
+	if level >= 2:
+		return [
+			Vector2(-18.0, 11.0), Vector2(-6.0, 11.0), Vector2(6.0, 11.0), Vector2(18.0, 11.0),
+			Vector2(-12.0, 0.0), Vector2(0.0, 0.0), Vector2(12.0, 0.0), Vector2(0.0, -11.0),
+		]
+	return [
+		Vector2(-12.0, 10.0), Vector2(0.0, 10.0), Vector2(12.0, 10.0),
+		Vector2(-12.0, -1.0), Vector2(0.0, -1.0), Vector2(12.0, -1.0),
+	]
+
+
+func _draw_cluster_launcher_cell(center: Vector2, direction: Vector2, side: Vector2, radius: float, fill: Color, accent: Color) -> void:
+	_draw_oriented_hex(center, direction, side, radius + 1.8, accent.darkened(0.24))
+	_draw_oriented_hex(center, direction, side, radius, fill.lightened(0.08))
+	_draw_oriented_hex(center + direction * 1.2, direction, side, radius * 0.48, Color(0.03, 0.025, 0.018))
+	_draw_rect_center(center + direction * 1.4, Vector2(3.0, 3.0), projectile_color)
+
+
+func _draw_oriented_hex(center: Vector2, direction: Vector2, side: Vector2, radius: float, color: Color) -> void:
+	var points := PackedVector2Array([
+		center + direction * radius,
+		center + direction * radius * 0.5 + side * radius * 0.86,
+		center - direction * radius * 0.5 + side * radius * 0.86,
+		center - direction * radius,
+		center - direction * radius * 0.5 - side * radius * 0.86,
+		center + direction * radius * 0.5 - side * radius * 0.86,
+	])
+	draw_colored_polygon(points, color)
+
+
 func _draw_amplifier_tower(_direction: Vector2) -> void:
 	_draw_64px_chassis(tower_color, Color(0.52, 1.0, 0.78), Color(0.05, 0.13, 0.10))
 	draw_arc(Vector2.ZERO, 24.0, 0.0, TAU, 40, Color(0.52, 1.0, 0.78, 0.55), 3.0, false)
@@ -1163,9 +1468,17 @@ func _draw_amplifier_tower(_direction: Vector2) -> void:
 
 func _draw_upgrade_details() -> void:
 	if not augmentation_id.is_empty():
-		draw_rect(Rect2(Vector2(-32.0, -32.0), Vector2(64.0, 64.0)), Color(0.42, 1.0, 0.62, 0.18))
-		draw_rect(Rect2(Vector2(-31.0, -31.0), Vector2(62.0, 62.0)), Color(0.42, 1.0, 0.62, 0.82), false, 2.0)
+		var glow_alpha := 0.14 + float(augmentation_level) * 0.045
+		var border_width := 1.5 + float(augmentation_level) * 0.7
+		draw_rect(Rect2(Vector2(-32.0, -32.0), Vector2(64.0, 64.0)), Color(0.42, 1.0, 0.62, glow_alpha))
+		draw_rect(Rect2(Vector2(-31.0, -31.0), Vector2(62.0, 62.0)), Color(0.42, 1.0, 0.62, 0.82), false, border_width)
 		draw_rect(Rect2(Vector2(-5.0, -36.0), Vector2(10.0, 8.0)), Color(0.42, 1.0, 0.62))
+		if augmentation_level >= 2:
+			draw_line(Vector2(-32.0, -24.0), Vector2(32.0, -24.0), Color(0.74, 1.0, 0.82, 0.78), 2.0, false)
+			draw_line(Vector2(-32.0, 24.0), Vector2(32.0, 24.0), Color(0.74, 1.0, 0.82, 0.78), 2.0, false)
+		if augmentation_level >= 3:
+			draw_line(Vector2(-24.0, -32.0), Vector2(-24.0, 32.0), Color(0.90, 1.0, 0.88, 0.86), 2.0, false)
+			draw_line(Vector2(24.0, -32.0), Vector2(24.0, 32.0), Color(0.90, 1.0, 0.88, 0.86), 2.0, false)
 
 
 func _draw_64px_chassis(fill: Color, accent: Color, shadow: Color) -> void:

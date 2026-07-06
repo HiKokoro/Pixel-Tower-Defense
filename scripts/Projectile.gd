@@ -10,7 +10,9 @@ const VISUAL_RAPID := "rapid"
 const VISUAL_SHOTGUN := "shotgun"
 const VISUAL_CANNON := "cannon"
 const VISUAL_SNIPER := "sniper"
-const SNIPER_DAMAGE_FALLOFF: float = 0.72
+const VISUAL_CLUSTER := "cluster"
+const HOMING_TURN_RATE_STANDARD: float = 5.2
+const SNIPER_DAMAGE_FALLOFF: float = 0.56
 const SNIPER_SCREEN_EXIT_MARGIN: float = 80.0
 
 var game: Main
@@ -25,6 +27,8 @@ var projectile_color: Color = Color(1.0, 0.83, 0.2)
 var trail_color: Color = Color(1.0, 0.45, 0.1, 0.8)
 var projectile_size: float = 5.0
 var visual_profile: String = VISUAL_BASIC
+var homing_enabled: bool = false
+var homing_turn_rate: float = HOMING_TURN_RATE_STANDARD
 var max_travel_distance: float = 0.0
 var status_effect_id: String = ""
 var burn_damage_per_tick: int = 0
@@ -79,6 +83,11 @@ func set_game(game_ref: Main) -> void:
 	game = game_ref
 
 
+func setup_homing(enabled: bool, turn_rate: float = HOMING_TURN_RATE_STANDARD) -> void:
+	homing_enabled = enabled
+	homing_turn_rate = maxf(turn_rate, 0.1)
+
+
 func setup_status_effect(effect: Dictionary) -> void:
 	status_effect_id = str(effect.get("id", "")).strip_edges()
 	burn_damage_per_tick = maxi(int(effect.get("burn_damage_per_tick", 0)), 0)
@@ -89,6 +98,20 @@ func setup_status_effect(effect: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if homing_enabled:
+		_process_homing_motion(delta)
+		return
+	_process_linear_motion(delta)
+
+
+func _process_homing_motion(delta: float) -> void:
+	var live_target := _is_valid_enemy_target(target)
+	if live_target != null:
+		var desired_direction := (live_target.global_position - global_position).normalized()
+		if desired_direction != Vector2.ZERO:
+			var max_turn := homing_turn_rate * delta
+			var turn_angle := clampf(_travel_direction.angle_to(desired_direction), -max_turn, max_turn)
+			_travel_direction = _travel_direction.rotated(turn_angle).normalized()
 	_process_linear_motion(delta)
 
 
@@ -138,6 +161,11 @@ func _draw() -> void:
 		VISUAL_SHOTGUN:
 			draw_circle(Vector2.ZERO, projectile_size, projectile_color)
 			draw_line(Vector2(-5.0, 0.0), Vector2(-2.0, 0.0), Color(trail_color.r, trail_color.g, trail_color.b, 0.58), 1.5)
+		VISUAL_CLUSTER:
+			draw_colored_polygon(PackedVector2Array([Vector2(9.0, 0.0), Vector2(1.0, -4.5), Vector2(-7.0, -4.0), Vector2(-7.0, 4.0), Vector2(1.0, 4.5)]), projectile_color.darkened(0.04))
+			draw_rect(Rect2(Vector2(-5.0, -2.5), Vector2(7.0, 5.0)), projectile_color.lightened(0.18))
+			draw_circle(Vector2(6.0, 0.0), 2.0, Color(1.0, 1.0, 1.0, 0.88))
+			draw_line(Vector2(-15.0, 0.0), Vector2(-7.0, 0.0), trail_color, 3.0)
 		VISUAL_RAPID:
 			draw_circle(Vector2.ZERO, projectile_size, projectile_color)
 			draw_line(Vector2(-9.0, 0.0), Vector2(-3.0, 0.0), trail_color, 2.0)
@@ -263,7 +291,7 @@ func _is_valid_enemy_target(enemy) -> Enemy:
 
 
 func _is_cannon_splash_shell() -> bool:
-	return visual_profile == VISUAL_CANNON and splash_radius > 0.0 and splash_damage > 0
+	return visual_profile in [VISUAL_CANNON, VISUAL_CLUSTER] and splash_radius > 0.0 and splash_damage > 0
 
 
 func _should_limit_to_max_travel_distance() -> bool:
@@ -331,6 +359,8 @@ func _get_projectile_size() -> float:
 			return 8.5
 		VISUAL_SNIPER:
 			return 3.0
+		VISUAL_CLUSTER:
+			return 5.4
 		VISUAL_SHOTGUN:
 			return 3.5
 		VISUAL_RAPID:
@@ -345,6 +375,8 @@ func _get_projectile_hit_radius() -> float:
 			return 9.0
 		VISUAL_SNIPER:
 			return 5.0
+		VISUAL_CLUSTER:
+			return 6.5
 		VISUAL_SHOTGUN:
 			return 4.0
 		VISUAL_RAPID:
@@ -361,6 +393,8 @@ func _get_trail_particle_amount() -> int:
 			return 1
 		VISUAL_CANNON:
 			return 4
+		VISUAL_CLUSTER:
+			return 2
 		_:
 			return 3
 
@@ -420,6 +454,19 @@ func _get_impact_particle_config() -> Dictionary:
 				"gravity": Vector2.ZERO,
 				"color": projectile_color,
 			}
+		VISUAL_CLUSTER:
+			return {
+				"name": "ClusterImpactParticles",
+				"amount": 18 if splash_radius > 0.0 else 8,
+				"lifetime": 0.30 if splash_radius > 0.0 else 0.18,
+				"emission_radius": maxf(2.0, splash_radius * 0.16),
+				"velocity_min": 28.0,
+				"velocity_max": 128.0,
+				"scale_min": 0.55,
+				"scale_max": 1.9 if splash_radius > 0.0 else 1.2,
+				"gravity": Vector2.ZERO,
+				"color": projectile_color.lightened(0.08),
+			}
 		_:
 			return {
 				"name": "BasicImpactParticles",
@@ -443,6 +490,8 @@ func _get_impact_effect_name() -> String:
 			return "ShotgunImpactEffect"
 		VISUAL_SNIPER:
 			return "SniperImpactEffect"
+		VISUAL_CLUSTER:
+			return "ClusterImpactEffect"
 		VISUAL_RAPID:
 			return "RapidImpactEffect"
 		_:
@@ -456,6 +505,8 @@ func _get_impact_effect_profile() -> String:
 		return VISUAL_SNIPER
 	if visual_profile == VISUAL_RAPID:
 		return VISUAL_RAPID
+	if visual_profile == VISUAL_CLUSTER:
+		return VISUAL_CANNON if splash_radius > 0.0 else VISUAL_RAPID
 	return VISUAL_BASIC
 
 
@@ -465,6 +516,8 @@ func _get_impact_effect_radius() -> float:
 			return maxf(splash_radius, 34.0)
 		VISUAL_SNIPER:
 			return 34.0
+		VISUAL_CLUSTER:
+			return maxf(splash_radius, 24.0)
 		VISUAL_RAPID:
 			return 22.0
 		VISUAL_SHOTGUN:

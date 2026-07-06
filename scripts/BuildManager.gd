@@ -18,6 +18,7 @@ const NO_TOWER_SELECTED_MESSAGE_TEXT := "请先选择一座防御塔。"
 const TOWER_MAX_LEVEL_MESSAGE_TEXT := "防御塔已达到最高等级。"
 const UPGRADE_INSUFFICIENT_GOLD_MESSAGE_TEXT := "金币不足，无法升级。"
 const TOWER_UPGRADED_MESSAGE_TEXT := "防御塔已升级。"
+const AUGMENTATION_UPGRADED_MESSAGE_TEXT := "增幅塔已升级。"
 const BASIC_FIRE_UPGRADED_MESSAGE_TEXT := "基础塔已升级为火塔。"
 const BASIC_ICE_UPGRADED_MESSAGE_TEXT := "基础塔已升级为冰塔。"
 const TOWER_SOLD_MESSAGE_TEXT := "防御塔已出售。"
@@ -218,6 +219,38 @@ func upgrade_selected(branch_id: String = "") -> void:
 		game.add_gold(cost)
 		game.set_message(_get_tower_max_level_message_text())
 		return
+	_play_selected_upgrade_effect()
+	game.set_message(_get_tower_upgraded_message_text(selected_tower.basic_branch, false))
+	game.show_selected_tower(selected_tower)
+
+
+func upgrade_selected_augmentation() -> void:
+	if not is_instance_valid(selected_tower):
+		game.set_message(_get_no_tower_selected_message_text())
+		return
+
+	if not selected_tower.can_upgrade_augmentation():
+		game.set_message(_get_tower_max_level_message_text())
+		return
+
+	var cost := selected_tower.get_augmentation_upgrade_cost()
+	if game.gold < cost:
+		game.set_message(_get_upgrade_insufficient_gold_message_text())
+		return
+
+	game.spend_gold(cost)
+	if not selected_tower.upgrade_augmentation():
+		game.add_gold(cost)
+		game.set_message(_get_tower_max_level_message_text())
+		return
+	_play_selected_upgrade_effect()
+	game.set_message(_get_tower_upgraded_message_text("", true))
+	game.show_selected_tower(selected_tower)
+
+
+func _play_selected_upgrade_effect() -> void:
+	if not is_instance_valid(selected_tower):
+		return
 	game.spawn_particle_burst(selected_tower.global_position, {
 		"name": "UpgradeParticles",
 		"amount": 42,
@@ -233,8 +266,6 @@ func upgrade_selected(branch_id: String = "") -> void:
 		"color": Color(1.0, 0.86, 0.30),
 		"important": true,
 	})
-	game.set_message(_get_tower_upgraded_message_text(selected_tower.basic_branch))
-	game.show_selected_tower(selected_tower)
 
 
 func sell_selected() -> void:
@@ -387,7 +418,9 @@ func _get_upgrade_insufficient_gold_message_text() -> String:
 	return UPGRADE_INSUFFICIENT_GOLD_MESSAGE_TEXT
 
 
-func _get_tower_upgraded_message_text(branch_id: String = "") -> String:
+func _get_tower_upgraded_message_text(branch_id: String = "", upgrading_augmentation: bool = false) -> String:
+	if upgrading_augmentation:
+		return AUGMENTATION_UPGRADED_MESSAGE_TEXT
 	match branch_id:
 		Tower.BASIC_FIRE_BRANCH_ID:
 			return BASIC_FIRE_UPGRADED_MESSAGE_TEXT

@@ -56,8 +56,17 @@ const STATUS_MESSAGE_POSITION := Vector2(300.0, 410.0)
 const STATUS_MESSAGE_SIZE := Vector2(360.0, 30.0)
 const STATUS_MESSAGE_HOLD_TIME: float = 1.25
 const STATUS_MESSAGE_FADE_TIME: float = 2.10
+const STATUS_MESSAGE_STACK_LIMIT: int = 5
+const STATUS_MESSAGE_STACK_GAP: float = 22.0
+const STATUS_MESSAGE_FLOAT_DISTANCE: float = 46.0
+const STATUS_MESSAGE_POP_SCALE: float = 1.08
+const WAVE_COUNTDOWN_POSITION := Vector2(280.0, 226.0)
+const WAVE_COUNTDOWN_SIZE := Vector2(400.0, 150.0)
+const WAVE_COUNTDOWN_TITLE_TEMPLATE := "第%d波即将开始"
+const WAVE_COUNTDOWN_TIMER_TEMPLATE := "%.2f"
 const START_WAVE_BUTTON_TEXT := "开始波次"
 const NEXT_LEVEL_BUTTON_TEXT := "下一关"
+const GAME_SPEED_BUTTON_TEMPLATE := "%sx"
 const TOWER_PANEL_CLOSE_BUTTON_TEXT := "关闭"
 const TOWER_UPGRADE_PLACEHOLDER_TEXT := "升级"
 const TOWER_SELL_PLACEHOLDER_TEXT := "出售"
@@ -114,8 +123,12 @@ const WEAPON_TOWER_BUTTON_TEMPLATE := "%s\n%d金  伤%d  射%d"
 const CONSOLE_COMPLETION_MISSING_TEMPLATE := "没有可补全项：%s"
 const CONSOLE_COMPLETION_OPTIONS_TEMPLATE := "可选补全：%s"
 const TOWER_PANEL_INFO_TEMPLATE := "%s  等级 %d\n伤害 %d   射程 %d\n间隔 %.2f秒"
+const TOWER_AUGMENTATION_PANEL_INFO_TEMPLATE := "支援层  等级 %d\n加成：伤害+%d%%  射程+%d%%\n%s"
 const TOWER_PANEL_TRAIT_APPEND_TEMPLATE := "%s\n%s\n%s"
 const TOWER_UPGRADE_BUTTON_TEMPLATE := "升级（%d金币）"
+const TOWER_AUGMENT_UPGRADE_BUTTON_TEXT := "升级"
+const TOWER_AUGMENT_UPGRADE_TOOLTIP_TEMPLATE := "消耗%d金币升级支援层"
+const TOWER_AUGMENT_MAX_LEVEL_BUTTON_TEXT := "满级"
 const TOWER_FIRE_UPGRADE_BUTTON_TEMPLATE := "火塔（%d金币）"
 const TOWER_ICE_UPGRADE_BUTTON_TEMPLATE := "冰塔（%d金币）"
 const TOWER_MAX_LEVEL_BUTTON_TEXT := "已满级"
@@ -136,6 +149,7 @@ const PENDING_CARD_TIMER_TEMPLATE := "自动放弃 %.0f秒"
 const DAMAGE_BOOST_CARD_ICON_TEXT := "攻"
 const RANGE_BOOST_CARD_ICON_TEXT := "射"
 const FIRE_RATE_BOOST_CARD_ICON_TEXT := "速"
+const VOLLEY_COMMAND_CARD_ICON_TEXT := "齐"
 const HEAL_CARD_ICON_TEXT := "疗"
 const MISSILE_CARD_ICON_TEXT := "爆"
 const CRYO_CARD_ICON_TEXT := "冻"
@@ -158,6 +172,7 @@ signal start_wave_pressed
 signal tower_build_requested(type_id: String)
 signal next_level_pressed
 signal upgrade_pressed
+signal augmentation_upgrade_pressed
 signal basic_branch_upgrade_pressed(branch_id: String)
 signal sell_pressed
 signal tower_panel_close_pressed
@@ -177,15 +192,20 @@ signal pause_restart_pressed
 signal pause_main_menu_pressed
 signal end_restart_pressed
 signal end_main_menu_pressed
+signal game_speed_pressed
 
 var gold_label: Label
 var base_health_label: Label
 var level_label: Label
 var wave_label: Label
 var message_label: Label
+var wave_countdown_panel: Panel
+var wave_countdown_title_label: Label
+var wave_countdown_timer_label: Label
 var start_wave_button: Button
 var build_tower_button: Button
 var next_level_button: Button
+var game_speed_button: Button
 var build_panel: Panel
 var build_options_scroll: ScrollContainer
 var build_options_container: HBoxContainer
@@ -193,7 +213,10 @@ var compact_build_options_scroll: ScrollContainer
 var compact_build_options_container: HBoxContainer
 var tower_panel: Panel
 var tower_info_label: Label
+var tower_augmentation_panel: Panel
+var tower_augmentation_info_label: Label
 var upgrade_button: Button
+var augmentation_upgrade_button: Button
 var fire_upgrade_button: Button
 var ice_upgrade_button: Button
 var sell_button: Button
@@ -224,6 +247,8 @@ var codex_detail_preview: CodexIconPreview
 var codex_detail_title_label: Label
 var codex_detail_meta_label: Label
 var codex_detail_body_label: RichTextLabel
+var codex_upgrade_scroll: ScrollContainer
+var codex_upgrade_container: HBoxContainer
 var level_select_panel: Panel
 var level_select_scroll: ScrollContainer
 var level_buttons_container: GridContainer
@@ -282,6 +307,10 @@ var _level_banner_tween: Tween
 var _level_clear_tween: Tween
 var _status_message_elapsed: float = 0.0
 var _status_message_fade_active: bool = false
+var _status_message_items: Array[Dictionary] = []
+var _status_message_event_serial: int = 0
+var _wave_countdown_wave: int = -1
+var _wave_countdown_seconds_text: String = ""
 var _build_option_buttons: Array[Button] = []
 var _compact_build_option_buttons: Array[Button] = []
 var _level_buttons: Array[Button] = []
@@ -312,14 +341,18 @@ var _last_total_levels: int = -999999
 var _last_wave: int = -999999
 var _last_total_waves: int = -999999
 var _last_message: String = ""
+var _last_message_event_id: int = -1
 var _last_start_wave_enabled: int = -1
 var _last_build_enabled: int = -1
 var _last_next_level_enabled: int = -1
 var _console_visible_requested: bool = false
 var _tower_panel_cache_id: int = -1
 var _tower_panel_cache_info: String = ""
+var _tower_panel_cache_augmentation_info: String = ""
 var _tower_panel_cache_upgrade_text: String = ""
 var _tower_panel_cache_upgrade_disabled: bool = false
+var _tower_panel_cache_augmentation_upgrade_text: String = ""
+var _tower_panel_cache_augmentation_upgrade_disabled: bool = false
 var _tower_panel_cache_branch_mode: bool = false
 var _tower_panel_cache_fire_text: String = ""
 var _tower_panel_cache_ice_text: String = ""
@@ -336,6 +369,7 @@ const WARNING := Color(0.90, 0.62, 0.24)
 const DANGER := Color(0.88, 0.22, 0.18)
 const PANEL_INK := Color(0.018, 0.024, 0.030, 0.96)
 const CARD_SIZE := Vector2(104.0, 148.0)
+const CARD_TEXT_OPTICAL_OFFSET_X: float = 4.0
 const CARD_HAND_CENTER := Vector2(775.0, 488.0)
 const CARD_HAND_ZONE := Rect2(Vector2(592.0, 388.0), Vector2(354.0, 146.0))
 const CARD_SELL_ZONE := Rect2(Vector2(868.0, 348.0), Vector2(58.0, 48.0))
@@ -344,6 +378,11 @@ const HUD_STATUS_GOLD_TEXTURE_PATH := "res://assets/ui/status_gold.png"
 const HUD_STATUS_HEALTH_TEXTURE_PATH := "res://assets/ui/status_health.png"
 const HUD_STATUS_LEVEL_TEXTURE_PATH := "res://assets/ui/status_level.png"
 const HUD_STATUS_WAVE_TEXTURE_PATH := "res://assets/ui/status_wave.png"
+const CARD_BACKGROUND_WHITE_TEXTURE_PATH := "res://assets/ui/cards/card_background_white.png"
+const CARD_BACKGROUND_BLUE_TEXTURE_PATH := "res://assets/ui/cards/card_background_blue.png"
+const CARD_BACKGROUND_PURPLE_TEXTURE_PATH := "res://assets/ui/cards/card_background_purple.png"
+const CARD_BACKGROUND_GOLD_TEXTURE_PATH := "res://assets/ui/cards/card_background_gold.png"
+const CARD_BACKGROUND_RED_TEXTURE_PATH := "res://assets/ui/cards/card_background_red.png"
 
 
 class AreaCardPreview:
@@ -366,11 +405,15 @@ class CodexIconPreview:
 	var config: Dictionary = {}
 	var preview_node: Node2D
 	var support_item: bool = false
+	var tower_preview_level: int = 1
+	var tower_preview_branch: String = ""
 
-	func set_item(new_kind: String, new_config: Dictionary, new_support_item: bool = false) -> void:
+	func set_item(new_kind: String, new_config: Dictionary, new_support_item: bool = false, preview_level: int = 1, preview_branch: String = "") -> void:
 		item_kind = new_kind
 		config = new_config.duplicate(true)
 		support_item = new_support_item
+		tower_preview_level = maxi(preview_level, 1)
+		tower_preview_branch = preview_branch
 		_refresh_preview_node()
 		queue_redraw()
 
@@ -404,7 +447,15 @@ class CodexIconPreview:
 		tower.selected = false
 		if support_item:
 			tower.apply_augmentation(config)
+		else:
+			_apply_tower_preview_upgrades(tower)
 		return tower
+
+	func _apply_tower_preview_upgrades(tower: Tower) -> void:
+		while tower.level < tower_preview_level and tower.can_upgrade():
+			var branch_id := tower_preview_branch if tower.can_choose_basic_branch() else ""
+			if not tower.upgrade(branch_id):
+				break
 
 	func _make_enemy_preview_node() -> Enemy:
 		var enemy := Enemy.new()
@@ -455,6 +506,10 @@ const CONSOLE_CARD_ARGS: Array[String] = [
 	"boost",
 	"range",
 	"rate",
+	"volley",
+	"volley_command",
+	"齐射",
+	"齐射指令",
 	"heal",
 	"missile",
 	"cryo",
@@ -523,6 +578,11 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	_set_button_enabled(next_level_button, false)
 	root.add_child(next_level_button)
 
+	game_speed_button = _make_button(_format_game_speed_button_text(1.0), Vector2(802.0, 14.0), Vector2(92.0, 36.0), Color(0.52, 0.72, 1.0))
+	game_speed_button.tooltip_text = "切换游戏速度：1x / 1.5x / 2x / 4x"
+	game_speed_button.pressed.connect(_on_game_speed_pressed)
+	root.add_child(game_speed_button)
+
 	message_label = _make_label(STATUS_MESSAGE_POSITION, STATUS_MESSAGE_SIZE, TEXT_MAIN)
 	message_label.name = "CenterStatusMessage"
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -536,42 +596,65 @@ func setup(tower_configs: Array[Dictionary] = [], level_configs: Array[Dictionar
 	message_label.add_theme_constant_override("shadow_offset_y", 2)
 	root.add_child(message_label)
 
+	_create_wave_countdown_ui(root)
+
 	_create_build_panel(root, tower_configs)
 
 	tower_panel = Panel.new()
 	tower_panel.position = TOWER_PANEL_CLOSED_POSITION
-	tower_panel.size = Vector2(250.0, 236.0)
+	tower_panel.size = Vector2(250.0, 252.0)
 	tower_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	tower_panel.visible = false
 	tower_panel.modulate.a = 0.0
 	tower_panel.add_theme_stylebox_override("panel", _panel_style(HUD_BG, Color(0.36, 0.50, 0.52), 0))
 	root.add_child(tower_panel)
 
-	tower_info_label = _make_label(Vector2(14.0, 10.0), Vector2(156.0, 112.0), TEXT_MAIN)
+	tower_info_label = _make_label(Vector2(14.0, 10.0), Vector2(222.0, 132.0), TEXT_MAIN)
 	tower_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tower_info_label.add_theme_font_size_override("font_size", 14)
 	tower_panel.add_child(tower_info_label)
 
 	tower_panel_close_button = _make_button(_get_tower_panel_close_button_text(), Vector2(178.0, 10.0), Vector2(58.0, 30.0), TEXT_MUTED)
 	tower_panel_close_button.pressed.connect(_on_tower_panel_close_pressed)
 	tower_panel.add_child(tower_panel_close_button)
 
-	upgrade_button = _make_button(_get_tower_upgrade_placeholder_text(), Vector2(14.0, 136.0), Vector2(106.0, 42.0), ACCENT)
+	upgrade_button = _make_button(_get_tower_upgrade_placeholder_text(), Vector2(14.0, 150.0), Vector2(106.0, 42.0), ACCENT)
 	upgrade_button.pressed.connect(_on_upgrade_pressed)
 	tower_panel.add_child(upgrade_button)
 
-	fire_upgrade_button = _make_button("", Vector2(14.0, 132.0), Vector2(106.0, 36.0), Color(1.0, 0.46, 0.18))
+	fire_upgrade_button = _make_button("", Vector2(14.0, 150.0), Vector2(106.0, 36.0), Color(1.0, 0.46, 0.18))
 	fire_upgrade_button.pressed.connect(_on_basic_branch_upgrade_pressed.bind(Tower.BASIC_FIRE_BRANCH_ID))
 	fire_upgrade_button.visible = false
 	tower_panel.add_child(fire_upgrade_button)
 
-	ice_upgrade_button = _make_button("", Vector2(130.0, 132.0), Vector2(106.0, 36.0), Color(0.42, 0.80, 1.0))
+	ice_upgrade_button = _make_button("", Vector2(130.0, 150.0), Vector2(106.0, 36.0), Color(0.42, 0.80, 1.0))
 	ice_upgrade_button.pressed.connect(_on_basic_branch_upgrade_pressed.bind(Tower.BASIC_ICE_BRANCH_ID))
 	ice_upgrade_button.visible = false
 	tower_panel.add_child(ice_upgrade_button)
 
-	sell_button = _make_button(_get_tower_sell_placeholder_text(), Vector2(130.0, 136.0), Vector2(106.0, 42.0), DANGER)
+	sell_button = _make_button(_get_tower_sell_placeholder_text(), Vector2(130.0, 150.0), Vector2(106.0, 42.0), DANGER)
 	sell_button.pressed.connect(_on_sell_pressed)
 	tower_panel.add_child(sell_button)
+
+	tower_augmentation_panel = Panel.new()
+	tower_augmentation_panel.position = Vector2(14.0, 246.0)
+	tower_augmentation_panel.size = Vector2(222.0, 94.0)
+	tower_augmentation_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	tower_augmentation_panel.visible = false
+	tower_augmentation_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.045, 0.065, 0.078, 0.96), Color(0.42, 0.68, 0.82, 0.90), 1))
+	tower_panel.add_child(tower_augmentation_panel)
+
+	tower_augmentation_info_label = _make_label(Vector2(10.0, 6.0), Vector2(202.0, 48.0), Color(0.78, 0.92, 1.0))
+	tower_augmentation_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tower_augmentation_info_label.add_theme_font_size_override("font_size", 12)
+	tower_augmentation_panel.add_child(tower_augmentation_info_label)
+
+	# 支援层升级按钮贴近“等级x：xxxx”预览行，避免再占用一整行空间。
+	augmentation_upgrade_button = _make_button("", Vector2(154.0, 43.0), Vector2(58.0, 22.0), Color(0.62, 0.86, 1.0))
+	augmentation_upgrade_button.add_theme_font_size_override("font_size", 11)
+	augmentation_upgrade_button.pressed.connect(_on_augmentation_upgrade_pressed)
+	augmentation_upgrade_button.visible = false
+	tower_augmentation_panel.add_child(augmentation_upgrade_button)
 
 	start_overlay = Panel.new()
 	start_overlay.position = Vector2.ZERO
@@ -677,12 +760,14 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func update_status(gold: int, base_health: int, max_base_health: int, level: int, total_levels: int, wave: int, total_waves: int, message: String) -> void:
+func update_status(gold: int, base_health: int, max_base_health: int, level: int, total_levels: int, wave: int, total_waves: int, message: String, message_event_id: int = 0) -> void:
 	var gold_changed := gold != _last_gold
 	var health_changed := base_health != _last_base_health or max_base_health != _last_max_base_health
 	var level_changed := level != _last_level or total_levels != _last_total_levels
 	var wave_changed := wave != _last_wave or total_waves != _last_total_waves
 	var message_changed := message != _last_message
+	if message_event_id != 0 or _last_message_event_id != 0:
+		message_changed = message_event_id != _last_message_event_id
 	if not gold_changed and not health_changed and not level_changed and not wave_changed and not message_changed:
 		return
 
@@ -703,6 +788,7 @@ func update_status(gold: int, base_health: int, max_base_health: int, level: int
 		_set_status_label_text(wave_label, _format_wave_status_text(wave, total_waves))
 	if message_changed:
 		_last_message = message
+		_last_message_event_id = message_event_id
 		_show_status_message(message)
 
 
@@ -722,12 +808,27 @@ func _format_wave_status_text(wave: int, total_waves: int) -> String:
 	return WAVE_STATUS_TEMPLATE % [wave, total_waves]
 
 
+func _format_wave_countdown_title_text(wave: int) -> String:
+	return WAVE_COUNTDOWN_TITLE_TEMPLATE % maxi(wave, 1)
+
+
+func _format_wave_countdown_timer_text(seconds_left: float) -> String:
+	return WAVE_COUNTDOWN_TIMER_TEMPLATE % maxf(seconds_left, 0.0)
+
+
 func _get_start_wave_button_text() -> String:
 	return START_WAVE_BUTTON_TEXT
 
 
 func _get_next_level_button_text() -> String:
 	return NEXT_LEVEL_BUTTON_TEXT
+
+
+func _format_game_speed_button_text(multiplier: float) -> String:
+	var rounded := roundf(multiplier)
+	if is_equal_approx(multiplier, rounded):
+		return GAME_SPEED_BUTTON_TEMPLATE % str(int(rounded))
+	return GAME_SPEED_BUTTON_TEMPLATE % ("%.1f" % multiplier)
 
 
 func _get_tower_panel_close_button_text() -> String:
@@ -959,6 +1060,10 @@ func _get_fire_rate_boost_card_icon_text() -> String:
 	return FIRE_RATE_BOOST_CARD_ICON_TEXT
 
 
+func _get_volley_command_card_icon_text() -> String:
+	return VOLLEY_COMMAND_CARD_ICON_TEXT
+
+
 func _get_heal_card_icon_text() -> String:
 	return HEAL_CARD_ICON_TEXT
 
@@ -1035,13 +1140,38 @@ func _format_tower_panel_info_text(tower: Tower) -> String:
 		int(tower.get_effective_range()),
 		tower.get_effective_attack_interval()
 	]
-	return TOWER_PANEL_TRAIT_APPEND_TEMPLATE % [info_text, tower.get_trait_summary(), tower.get_upgrade_preview()]
+	return TOWER_PANEL_TRAIT_APPEND_TEMPLATE % [info_text, _get_tower_base_trait_summary_text(tower), tower.get_upgrade_preview()]
+
+
+func _format_tower_augmentation_panel_info_text(tower: Tower) -> String:
+	if tower == null or not tower.has_augmentation():
+		return ""
+	return TOWER_AUGMENTATION_PANEL_INFO_TEMPLATE % [
+		tower.get_augmentation_level(),
+		tower.get_augmentation_damage_bonus_percent(),
+		tower.get_augmentation_range_bonus_percent(),
+		tower.get_augmentation_upgrade_preview()
+	]
+
+
+func _get_tower_base_trait_summary_text(tower: Tower) -> String:
+	var trait_text := tower.get_trait_summary()
+	var augmentation_split_index := trait_text.find("\n增幅：")
+	if augmentation_split_index >= 0:
+		return trait_text.substr(0, augmentation_split_index)
+	return trait_text
 
 
 func _get_tower_upgrade_button_text(tower: Tower) -> String:
 	if tower.can_upgrade():
 		return TOWER_UPGRADE_BUTTON_TEMPLATE % tower.get_upgrade_cost()
 	return TOWER_MAX_LEVEL_BUTTON_TEXT
+
+
+func _get_tower_augmentation_upgrade_button_text(tower: Tower) -> String:
+	if tower.can_upgrade_augmentation():
+		return TOWER_AUGMENT_UPGRADE_BUTTON_TEXT
+	return TOWER_AUGMENT_MAX_LEVEL_BUTTON_TEXT
 
 
 func _get_tower_fire_upgrade_button_text(tower: Tower) -> String:
@@ -1054,6 +1184,10 @@ func _get_tower_ice_upgrade_button_text(tower: Tower) -> String:
 
 func _is_tower_upgrade_button_disabled(tower: Tower) -> bool:
 	return not tower.can_upgrade()
+
+
+func _is_tower_augmentation_upgrade_button_disabled(tower: Tower) -> bool:
+	return not tower.can_upgrade_augmentation()
 
 
 func _uses_basic_branch_upgrade_buttons(tower: Tower) -> bool:
@@ -1122,43 +1256,164 @@ func _set_status_label_text(label: Label, text: String) -> void:
 func _show_status_message(message: String) -> void:
 	if message_label == null:
 		return
-	_set_status_label_text(message_label, message)
 
 	if message.strip_edges().is_empty():
-		_status_message_fade_active = false
-		_status_message_elapsed = 0.0
-		message_label.modulate.a = 0.0
-		message_label.visible = false
+		_clear_status_message_stack()
 		return
 
+	# 先把当前复用 Label 从栈中快照出去，再写入新文本。
+	# 如果先写新文本再快照，会把同一次新提示复制成两条浮字。
+	_detach_reusable_status_label_from_stack()
+	_set_status_label_text(message_label, message)
 	message_label.position = STATUS_MESSAGE_POSITION
 	message_label.size = STATUS_MESSAGE_SIZE
 	message_label.visible = true
 	message_label.modulate.a = 1.0
+	message_label.scale = Vector2.ONE * STATUS_MESSAGE_POP_SCALE
+	message_label.pivot_offset = STATUS_MESSAGE_SIZE * 0.5
+	message_label.move_to_front()
 	_status_message_elapsed = 0.0
 	_status_message_fade_active = true
+	_status_message_event_serial += 1
+	_status_message_items.insert(0, {
+		"label": message_label,
+		"elapsed": 0.0,
+		"message": message,
+		"event_id": _status_message_event_serial,
+	})
+	_trim_status_message_stack()
+	_update_status_message_fade(0.0)
 
 
 func _update_status_message_fade(delta: float) -> void:
 	if not _status_message_fade_active or message_label == null:
 		return
 
-	# 手动累计时间而不是每次创建 Tween，避免高频状态刷新时旧 tween 抢写 alpha。
-	_status_message_elapsed += maxf(delta, 0.0)
+	# 手动累计每条消息的生命周期，不使用 Tween，避免连续刷提示时旧 tween 抢写位置/透明度。
+	var safe_delta := maxf(delta, 0.0)
 	var fade_start := STATUS_MESSAGE_HOLD_TIME
 	var fade_end := STATUS_MESSAGE_HOLD_TIME + STATUS_MESSAGE_FADE_TIME
-	if _status_message_elapsed <= fade_start:
-		message_label.modulate.a = 1.0
+	var kept_items: Array[Dictionary] = []
+	for index in range(_status_message_items.size()):
+		var item := _status_message_items[index]
+		var label := item.get("label") as Label
+		if label == null or not is_instance_valid(label):
+			continue
+
+		var elapsed := float(item.get("elapsed", 0.0)) + safe_delta
+		if elapsed >= fade_end:
+			if is_same(label, message_label):
+				label.modulate.a = 0.0
+				label.visible = false
+				label.scale = Vector2.ONE
+			else:
+				label.queue_free()
+			continue
+
+		item["elapsed"] = elapsed
+		_update_status_message_item(label, elapsed, index, fade_start, fade_end)
+		kept_items.append(item)
+
+	_status_message_items = kept_items
+	_status_message_fade_active = not _status_message_items.is_empty()
+	if not _status_message_fade_active:
+		_status_message_elapsed = 0.0
+
+
+func _update_status_message_item(label: Label, elapsed: float, stack_index: int, fade_start: float, fade_end: float) -> void:
+	var life_progress := clampf(elapsed / fade_end, 0.0, 1.0)
+	var float_eased := 1.0 - pow(1.0 - life_progress, 3.0)
+	var stack_offset := Vector2(0.0, -float(stack_index) * STATUS_MESSAGE_STACK_GAP)
+	var float_offset := Vector2(0.0, -STATUS_MESSAGE_FLOAT_DISTANCE * float_eased)
+	label.position = STATUS_MESSAGE_POSITION + stack_offset + float_offset
+	label.size = STATUS_MESSAGE_SIZE
+	label.visible = true
+
+	var fade_progress := 0.0
+	if elapsed > fade_start:
+		fade_progress = clampf((elapsed - fade_start) / STATUS_MESSAGE_FADE_TIME, 0.0, 1.0)
+	var fade_eased := fade_progress * fade_progress * (3.0 - 2.0 * fade_progress)
+	var stack_alpha := maxf(0.58, 1.0 - float(stack_index) * 0.10)
+	label.modulate.a = (1.0 - fade_eased) * stack_alpha
+
+	var pop_progress := clampf(elapsed / 0.22, 0.0, 1.0)
+	var pop_eased := 1.0 - pow(1.0 - pop_progress, 3.0)
+	var stack_scale := maxf(0.92, 1.0 - float(stack_index) * 0.03)
+	label.scale = Vector2.ONE * lerpf(STATUS_MESSAGE_POP_SCALE, stack_scale, pop_eased)
+
+
+func _detach_reusable_status_label_from_stack() -> void:
+	if _status_message_items.is_empty():
 		return
 
-	var fade_progress := clampf((_status_message_elapsed - fade_start) / STATUS_MESSAGE_FADE_TIME, 0.0, 1.0)
-	var eased := fade_progress * fade_progress * (3.0 - 2.0 * fade_progress)
-	message_label.modulate.a = 1.0 - eased
+	var copied_items: Array[Dictionary] = []
+	for item in _status_message_items:
+		var label := item.get("label") as Label
+		if label == null or not is_instance_valid(label):
+			continue
+		if is_same(label, message_label):
+			var snapshot_text := str(item.get("message", label.text))
+			if label.visible and not snapshot_text.strip_edges().is_empty():
+				var snapshot := _make_status_message_stack_label(snapshot_text)
+				snapshot.position = label.position
+				snapshot.modulate = label.modulate
+				snapshot.scale = label.scale
+				ui_root.add_child(snapshot)
+				snapshot.move_to_front()
+				copied_items.append({
+					"label": snapshot,
+					"elapsed": float(item.get("elapsed", 0.0)),
+					"message": snapshot_text,
+					"event_id": int(item.get("event_id", 0)),
+				})
+		else:
+			copied_items.append(item)
+	_status_message_items = copied_items
 
-	if _status_message_elapsed >= fade_end:
-		_status_message_fade_active = false
-		message_label.modulate.a = 0.0
-		message_label.visible = false
+
+func _trim_status_message_stack() -> void:
+	while _status_message_items.size() > STATUS_MESSAGE_STACK_LIMIT:
+		var item: Dictionary = _status_message_items.pop_back()
+		var label := item.get("label") as Label
+		if label == null or not is_instance_valid(label):
+			continue
+		if is_same(label, message_label):
+			label.modulate.a = 0.0
+			label.visible = false
+			label.scale = Vector2.ONE
+		else:
+			label.queue_free()
+
+
+func _clear_status_message_stack() -> void:
+	for item in _status_message_items:
+		var label := item.get("label") as Label
+		if label == null or not is_instance_valid(label):
+			continue
+		if is_same(label, message_label):
+			label.modulate.a = 0.0
+			label.visible = false
+			label.scale = Vector2.ONE
+		else:
+			label.queue_free()
+	_status_message_items.clear()
+	_status_message_fade_active = false
+	_status_message_elapsed = 0.0
+
+
+func _make_status_message_stack_label(text: String) -> Label:
+	var label := _make_label(STATUS_MESSAGE_POSITION, STATUS_MESSAGE_SIZE, TEXT_MAIN)
+	label.name = "StackedStatusMessage"
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.pivot_offset = STATUS_MESSAGE_SIZE * 0.5
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.72))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	return label
 
 
 func _set_button_enabled(button: Button, enabled: bool) -> void:
@@ -1196,6 +1451,12 @@ func set_next_level_enabled(enabled: bool) -> void:
 	_last_next_level_enabled = state
 	_set_button_enabled(next_level_button, enabled)
 	_set_button_enabled(level_clear_next_button, enabled)
+
+
+func set_game_speed_multiplier(multiplier: float) -> void:
+	if game_speed_button == null:
+		return
+	game_speed_button.text = _format_game_speed_button_text(multiplier)
 
 
 func set_continue_game_enabled(enabled: bool) -> void:
@@ -1284,6 +1545,8 @@ func show_start_screen() -> void:
 	set_card_hand_available(false)
 	hide_tower_panel(true)
 	hide_level_intro()
+	hide_wave_countdown()
+	_clear_status_message_stack()
 	_apply_start_screen_final_state()
 
 
@@ -1292,6 +1555,36 @@ func hide_start_screen() -> void:
 	hide_update_announcement_popup(false)
 	hide_update_announcement_history()
 	_animate_to_gameplay()
+
+
+func show_wave_countdown(wave: int, seconds_left: float) -> void:
+	if wave_countdown_panel == null:
+		return
+
+	var safe_wave := maxi(wave, 1)
+	var timer_text := _format_wave_countdown_timer_text(seconds_left)
+	var title_text := _format_wave_countdown_title_text(safe_wave)
+	var should_pop := not wave_countdown_panel.visible or _wave_countdown_wave != safe_wave
+	_wave_countdown_wave = safe_wave
+	_wave_countdown_seconds_text = timer_text
+	wave_countdown_title_label.text = title_text
+	wave_countdown_timer_label.text = timer_text
+	wave_countdown_panel.visible = true
+	wave_countdown_panel.modulate.a = 1.0
+	wave_countdown_panel.move_to_front()
+	if should_pop:
+		wave_countdown_panel.scale = Vector2.ONE * 0.92
+		_play_popup_bounce(wave_countdown_panel, 0.92, 0.20)
+
+
+func hide_wave_countdown() -> void:
+	if wave_countdown_panel == null:
+		return
+	wave_countdown_panel.visible = false
+	wave_countdown_panel.modulate.a = 0.0
+	wave_countdown_panel.scale = Vector2.ONE
+	_wave_countdown_wave = -1
+	_wave_countdown_seconds_text = ""
 
 
 func show_end_overlay(title: String, subtitle: String, title_color: Color) -> void:
@@ -1447,8 +1740,11 @@ func show_tower_panel(tower: Tower = null) -> void:
 		return
 
 	var info_text := _format_tower_panel_info_text(tower)
+	var augmentation_info_text := _format_tower_augmentation_panel_info_text(tower)
 	var upgrade_text := _get_tower_upgrade_button_text(tower)
 	var upgrade_disabled := _is_tower_upgrade_button_disabled(tower)
+	var augmentation_upgrade_text := _get_tower_augmentation_upgrade_button_text(tower) if tower.has_augmentation() else ""
+	var augmentation_upgrade_disabled := _is_tower_augmentation_upgrade_button_disabled(tower)
 	var branch_mode := _uses_basic_branch_upgrade_buttons(tower)
 	var fire_text := _get_tower_fire_upgrade_button_text(tower) if branch_mode else ""
 	var ice_text := _get_tower_ice_upgrade_button_text(tower) if branch_mode else ""
@@ -1458,8 +1754,11 @@ func show_tower_panel(tower: Tower = null) -> void:
 		tower_panel.visible
 		and tower_id == _tower_panel_cache_id
 		and info_text == _tower_panel_cache_info
+		and augmentation_info_text == _tower_panel_cache_augmentation_info
 		and upgrade_text == _tower_panel_cache_upgrade_text
 		and upgrade_disabled == _tower_panel_cache_upgrade_disabled
+		and augmentation_upgrade_text == _tower_panel_cache_augmentation_upgrade_text
+		and augmentation_upgrade_disabled == _tower_panel_cache_augmentation_upgrade_disabled
 		and branch_mode == _tower_panel_cache_branch_mode
 		and fire_text == _tower_panel_cache_fire_text
 		and ice_text == _tower_panel_cache_ice_text
@@ -1470,25 +1769,45 @@ func show_tower_panel(tower: Tower = null) -> void:
 	_show_tower_panel_animated()
 	_tower_panel_cache_id = tower_id
 	_tower_panel_cache_info = info_text
+	_tower_panel_cache_augmentation_info = augmentation_info_text
 	_tower_panel_cache_upgrade_text = upgrade_text
 	_tower_panel_cache_upgrade_disabled = upgrade_disabled
+	_tower_panel_cache_augmentation_upgrade_text = augmentation_upgrade_text
+	_tower_panel_cache_augmentation_upgrade_disabled = augmentation_upgrade_disabled
 	_tower_panel_cache_branch_mode = branch_mode
 	_tower_panel_cache_fire_text = fire_text
 	_tower_panel_cache_ice_text = ice_text
 	_tower_panel_cache_sell_text = sell_text
 	tower_info_label.text = info_text
+	tower_panel.size = Vector2(250.0, 354.0) if tower.has_augmentation() else Vector2(250.0, 252.0)
 	upgrade_button.text = upgrade_text
 	upgrade_button.visible = not branch_mode
+	upgrade_button.position = Vector2(14.0, 150.0)
+	upgrade_button.size = Vector2(106.0, 42.0)
 	_set_button_enabled(upgrade_button, not upgrade_disabled)
 	fire_upgrade_button.text = fire_text
 	fire_upgrade_button.visible = branch_mode
+	fire_upgrade_button.position = Vector2(14.0, 150.0)
+	fire_upgrade_button.size = Vector2(106.0, 36.0)
 	_set_button_enabled(fire_upgrade_button, branch_mode)
 	ice_upgrade_button.text = ice_text
 	ice_upgrade_button.visible = branch_mode
+	ice_upgrade_button.position = Vector2(130.0, 150.0)
+	ice_upgrade_button.size = Vector2(106.0, 36.0)
 	_set_button_enabled(ice_upgrade_button, branch_mode)
 	sell_button.text = sell_text
-	sell_button.position = Vector2(14.0, 180.0) if branch_mode else Vector2(130.0, 136.0)
-	sell_button.size = Vector2(222.0, 38.0) if branch_mode else Vector2(106.0, 42.0)
+	if branch_mode:
+		sell_button.position = Vector2(14.0, 198.0)
+		sell_button.size = Vector2(222.0, 38.0)
+	else:
+		sell_button.position = Vector2(130.0, 150.0)
+		sell_button.size = Vector2(106.0, 42.0)
+	tower_augmentation_panel.visible = tower.has_augmentation()
+	tower_augmentation_info_label.text = augmentation_info_text
+	augmentation_upgrade_button.text = augmentation_upgrade_text
+	augmentation_upgrade_button.tooltip_text = TOWER_AUGMENT_UPGRADE_TOOLTIP_TEMPLATE % tower.get_augmentation_upgrade_cost() if tower.has_augmentation() and tower.can_upgrade_augmentation() else ""
+	augmentation_upgrade_button.visible = tower.has_augmentation()
+	_set_button_enabled(augmentation_upgrade_button, tower.has_augmentation() and not augmentation_upgrade_disabled)
 
 
 func hide_tower_panel(immediate: bool = false) -> void:
@@ -1501,7 +1820,10 @@ func hide_tower_panel(immediate: bool = false) -> void:
 			_tower_panel_tween.kill()
 		tower_panel.visible = false
 		tower_panel.position = TOWER_PANEL_CLOSED_POSITION
+		tower_panel.size = Vector2(250.0, 252.0)
 		tower_panel.modulate.a = 0.0
+		if tower_augmentation_panel != null:
+			tower_augmentation_panel.visible = false
 	elif tower_panel.visible:
 		_hide_tower_panel_animated()
 
@@ -1534,14 +1856,20 @@ func _hide_tower_panel_animated() -> void:
 	_tower_panel_tween.parallel().tween_property(tower_panel, "modulate:a", 0.0, TOWER_PANEL_ANIMATION_TIME * 0.75)
 	_tower_panel_tween.tween_callback(func() -> void:
 		tower_panel.visible = false
+		tower_panel.size = Vector2(250.0, 252.0)
+		if tower_augmentation_panel != null:
+			tower_augmentation_panel.visible = false
 	)
 
 
 func _reset_tower_panel_cache() -> void:
 	_tower_panel_cache_id = -1
 	_tower_panel_cache_info = ""
+	_tower_panel_cache_augmentation_info = ""
 	_tower_panel_cache_upgrade_text = ""
 	_tower_panel_cache_upgrade_disabled = false
+	_tower_panel_cache_augmentation_upgrade_text = ""
+	_tower_panel_cache_augmentation_upgrade_disabled = false
 	_tower_panel_cache_branch_mode = false
 	_tower_panel_cache_fire_text = ""
 	_tower_panel_cache_ice_text = ""
@@ -1694,6 +2022,32 @@ func _card_face_style(face_style: Dictionary) -> StyleBoxFlat:
 	style.shadow_size = 7 + _get_card_face_int(face_style, "pip_count", 0, 0, CARD_FACE_MAX_COUNT)
 	style.shadow_offset = Vector2(0.0, 3.0)
 	return style
+
+
+func _transparent_card_panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color.TRANSPARENT
+	style.border_width_left = 0
+	style.border_width_top = 0
+	style.border_width_right = 0
+	style.border_width_bottom = 0
+	style.shadow_size = 0
+	style.content_margin_left = 0.0
+	style.content_margin_right = 0.0
+	style.content_margin_top = 0.0
+	style.content_margin_bottom = 0.0
+	return style
+
+
+func _uses_card_face_texture(face_style: Dictionary) -> bool:
+	var texture_path := str(face_style.get("texture_path", ""))
+	return not texture_path.is_empty() and FileAccess.file_exists(texture_path)
+
+
+func _apply_card_text_shadow(label: Label, shadow_alpha: float = 0.72) -> void:
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, shadow_alpha))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
 
 
 func _apply_button_style(button: Button, accent: Color, is_tower_card: bool = false) -> void:
@@ -2050,6 +2404,7 @@ func _get_card_rarity_face_style(card: Dictionary) -> Dictionary:
 		CARD_RARITY_BLUE:
 			return {
 				"accent": accent,
+				"texture_path": CARD_BACKGROUND_BLUE_TEXTURE_PATH,
 				"bg": Color(0.026, 0.038, 0.052, 0.99),
 				"inner": Color(0.08, 0.16, 0.24, 0.18),
 				"border_width": 2,
@@ -2064,6 +2419,7 @@ func _get_card_rarity_face_style(card: Dictionary) -> Dictionary:
 		CARD_RARITY_PURPLE:
 			return {
 				"accent": accent,
+				"texture_path": CARD_BACKGROUND_PURPLE_TEXTURE_PATH,
 				"bg": Color(0.036, 0.030, 0.054, 0.99),
 				"inner": Color(0.16, 0.08, 0.28, 0.20),
 				"border_width": 3,
@@ -2078,6 +2434,7 @@ func _get_card_rarity_face_style(card: Dictionary) -> Dictionary:
 		CARD_RARITY_GOLD:
 			return {
 				"accent": accent,
+				"texture_path": CARD_BACKGROUND_GOLD_TEXTURE_PATH,
 				"bg": Color(0.052, 0.040, 0.018, 0.99),
 				"inner": Color(0.32, 0.20, 0.05, 0.23),
 				"border_width": 3,
@@ -2092,6 +2449,7 @@ func _get_card_rarity_face_style(card: Dictionary) -> Dictionary:
 		CARD_RARITY_RED:
 			return {
 				"accent": accent,
+				"texture_path": CARD_BACKGROUND_RED_TEXTURE_PATH,
 				"bg": Color(0.058, 0.022, 0.024, 0.99),
 				"inner": Color(0.34, 0.06, 0.04, 0.25),
 				"border_width": 4,
@@ -2106,6 +2464,7 @@ func _get_card_rarity_face_style(card: Dictionary) -> Dictionary:
 		_:
 			return {
 				"accent": accent,
+				"texture_path": CARD_BACKGROUND_WHITE_TEXTURE_PATH,
 				"bg": Color(0.032, 0.038, 0.045, 0.99),
 				"inner": Color(0.12, 0.14, 0.16, 0.10),
 				"border_width": 2,
@@ -2450,8 +2809,8 @@ func _create_codex_panel(root: Control, tower_configs: Array[Dictionary], enemy_
 	list_scroll.add_child(codex_list_container)
 
 	var detail_panel := Panel.new()
-	detail_panel.position = Vector2(94.0, 292.0)
-	detail_panel.size = Vector2(772.0, 246.0)
+	detail_panel.position = Vector2(94.0, 282.0)
+	detail_panel.size = Vector2(772.0, 274.0)
 	detail_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	detail_panel.add_theme_stylebox_override("panel", _panel_style(PANEL_INK, HUD_BORDER, 0))
 	codex_panel.add_child(detail_panel)
@@ -2476,13 +2835,28 @@ func _create_codex_panel(root: Control, tower_configs: Array[Dictionary], enemy_
 
 	codex_detail_body_label = RichTextLabel.new()
 	codex_detail_body_label.position = Vector2(214.0, 96.0)
-	codex_detail_body_label.size = Vector2(514.0, 122.0)
+	codex_detail_body_label.size = Vector2(514.0, 78.0)
 	codex_detail_body_label.fit_content = false
 	codex_detail_body_label.scroll_active = true
 	codex_detail_body_label.add_theme_color_override("default_color", TEXT_MUTED)
 	codex_detail_body_label.add_theme_font_size_override("normal_font_size", 14)
 	codex_detail_body_label.add_theme_stylebox_override("normal", _panel_style(Color(0.010, 0.016, 0.020, 0.86), Color(0.14, 0.25, 0.27), 0))
 	detail_panel.add_child(codex_detail_body_label)
+
+	codex_upgrade_scroll = ScrollContainer.new()
+	codex_upgrade_scroll.name = "CodexUpgradeScroll"
+	codex_upgrade_scroll.position = Vector2(214.0, 184.0)
+	codex_upgrade_scroll.size = Vector2(514.0, 70.0)
+	codex_upgrade_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	codex_upgrade_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	codex_upgrade_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_panel.add_child(codex_upgrade_scroll)
+
+	codex_upgrade_container = HBoxContainer.new()
+	codex_upgrade_container.name = "CodexUpgradeContainer"
+	codex_upgrade_container.custom_minimum_size = Vector2(0.0, 66.0)
+	codex_upgrade_container.add_theme_constant_override("separation", 8)
+	codex_upgrade_scroll.add_child(codex_upgrade_container)
 
 	var entries := _make_codex_entries(tower_configs, enemy_configs)
 	for entry in entries:
@@ -2539,7 +2913,113 @@ func _select_codex_entry(entry: Dictionary) -> void:
 	codex_detail_title_label.add_theme_color_override("font_color", _get_codex_entry_color(entry).lightened(0.18))
 	codex_detail_meta_label.text = _format_codex_meta_text(kind, config)
 	codex_detail_body_label.text = _format_codex_body_text(kind, config)
+	_refresh_codex_upgrade_strip(kind, config)
 	_play_popup_bounce(codex_detail_preview, 0.78, 0.18)
+
+
+func _refresh_codex_upgrade_strip(kind: String, config: Dictionary) -> void:
+	if codex_upgrade_scroll == null or codex_upgrade_container == null:
+		return
+
+	for child in codex_upgrade_container.get_children():
+		codex_upgrade_container.remove_child(child)
+		child.queue_free()
+
+	var show_upgrades := kind == "tower"
+	codex_upgrade_scroll.visible = show_upgrades
+	if not show_upgrades:
+		return
+
+	for stage in _make_tower_upgrade_stages(config):
+		codex_upgrade_container.add_child(_make_codex_upgrade_card(config, stage as Dictionary))
+
+
+func _make_tower_upgrade_stages(config: Dictionary) -> Array[Dictionary]:
+	var stages: Array[Dictionary] = []
+	if _is_support_tower_config(config):
+		stages.append({"title": "支援层", "level": 1, "branch": "", "hint": "叠加增幅"})
+		return stages
+
+	var type_id := str(config.get("id", "basic"))
+	stages.append({"title": "等级1", "level": 1, "branch": "", "hint": "初始形态"})
+	stages.append({"title": "等级2", "level": 2, "branch": "", "hint": _get_codex_upgrade_trait_label(type_id, 2, "")})
+	if type_id == "basic":
+		stages.append({"title": "等级3·火塔", "level": 3, "branch": Tower.BASIC_FIRE_BRANCH_ID, "hint": "持续灼烧"})
+		stages.append({"title": "等级3·冰塔", "level": 3, "branch": Tower.BASIC_ICE_BRANCH_ID, "hint": "寒霜减速"})
+	else:
+		stages.append({"title": "等级3", "level": 3, "branch": "", "hint": _get_codex_upgrade_trait_label(type_id, 3, "")})
+	return stages
+
+
+func _make_codex_upgrade_card(config: Dictionary, stage: Dictionary) -> Panel:
+	var level := int(stage.get("level", 1))
+	var branch := str(stage.get("branch", ""))
+	var title := str(stage.get("title", "等级%d" % level))
+	var hint := str(stage.get("hint", ""))
+	var support_item := _is_support_tower_config(config)
+
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(112.0, 64.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.set_meta("tower_level", level)
+	panel.set_meta("tower_branch", branch)
+	panel.set_meta("tower_stage_name", title)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color(0.016, 0.026, 0.032, 0.94), _get_codex_upgrade_stage_color(config, branch), 0))
+
+	var preview := CodexIconPreview.new()
+	preview.name = "UpgradePreview"
+	preview.position = Vector2(6.0, 6.0)
+	preview.size = Vector2(48.0, 52.0)
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview.set_item("tower", config, support_item, level, branch)
+	panel.add_child(preview)
+
+	var title_label := Label.new()
+	title_label.name = "UpgradeNameLabel"
+	title_label.position = Vector2(58.0, 8.0)
+	title_label.size = Vector2(50.0, 19.0)
+	title_label.text = title
+	title_label.add_theme_font_size_override("font_size", 12)
+	title_label.add_theme_color_override("font_color", _get_codex_upgrade_stage_color(config, branch).lightened(0.18))
+	panel.add_child(title_label)
+
+	var hint_label := Label.new()
+	hint_label.name = "UpgradeHintLabel"
+	hint_label.position = Vector2(58.0, 28.0)
+	hint_label.size = Vector2(50.0, 28.0)
+	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_label.text = hint
+	hint_label.add_theme_font_size_override("font_size", 10)
+	hint_label.add_theme_color_override("font_color", TEXT_MUTED)
+	panel.add_child(hint_label)
+	return panel
+
+
+func _get_codex_upgrade_stage_color(config: Dictionary, branch: String) -> Color:
+	if branch == Tower.BASIC_FIRE_BRANCH_ID:
+		return Color(1.0, 0.38, 0.14)
+	if branch == Tower.BASIC_ICE_BRANCH_ID:
+		return Color(0.38, 0.78, 1.0)
+	var raw_color: Variant = config.get("color", ACCENT)
+	return raw_color if raw_color is Color else ACCENT
+
+
+func _get_codex_upgrade_trait_label(type_id: String, level: int, branch: String = "") -> String:
+	if type_id == "basic":
+		if branch == Tower.BASIC_FIRE_BRANCH_ID:
+			return "持续灼烧"
+		if branch == Tower.BASIC_ICE_BRANCH_ID:
+			return "寒霜减速"
+		return "强化核心" if level <= 2 else "元素分支"
+	if type_id == "rapid":
+		return "双联枪管" if level <= 2 else "三联齐射"
+	if type_id == "shotgun":
+		return "扩容弹仓" if level <= 2 else "碎星齐射"
+	if type_id == "cannon":
+		return "爆破弹头" if level <= 2 else "震荡核心"
+	if type_id == "sniper":
+		return "校准透镜" if level <= 2 else "处决射击"
+	return "强化形态"
 
 
 func _get_codex_kind_label(kind: String) -> String:
@@ -2581,6 +3061,7 @@ func _format_tower_codex_body(config: Dictionary) -> String:
 		lines.append("属性：伤害 %d  |  射程 %d  |  间隔 %.2f 秒" % [_get_tower_config_damage(config), int(_get_tower_config_range(config)), _get_tower_config_interval(config)])
 		lines.append("弹丸速度：%d" % int(float(config.get("projectile_speed", 0.0))))
 	var type_id := str(config.get("id", "basic"))
+	lines.append(_format_tower_upgrade_route_text(type_id, _is_support_tower_config(config)))
 	match type_id:
 		"rapid":
 			lines.append("功能：高射速炮塔，适合追击漏掉的快速怪和补刀残血目标。")
@@ -2595,6 +3076,14 @@ func _format_tower_codex_body(config: Dictionary) -> String:
 		_:
 			lines.append("功能：均衡的基础炮塔，提供稳定单体输出。")
 	return "\n".join(lines)
+
+
+func _format_tower_upgrade_route_text(type_id: String, support_item: bool) -> String:
+	if support_item:
+		return "升级：支援层会叠加到已有炮塔；不作为独立攻击塔升级。"
+	if type_id == "basic":
+		return "升级：等级2 强化核心；等级3 可选择火塔（持续灼烧）或冰塔（寒霜减速）。"
+	return "升级：等级2 %s；等级3 %s。" % [_get_codex_upgrade_trait_label(type_id, 2), _get_codex_upgrade_trait_label(type_id, 3)]
 
 
 func _format_enemy_codex_body(config: Dictionary) -> String:
@@ -2706,6 +3195,7 @@ func _create_card_hand_ui(root: Control) -> void:
 	card_hand_zone.add_child(hand_label)
 
 	card_hand_toggle_button = _make_button(_get_card_hand_toggle_text(true), Vector2(138.0, 4.0), Vector2(74.0, 26.0), ACCENT)
+	card_hand_toggle_button.z_index = 80
 	card_hand_toggle_button.pressed.connect(_on_card_hand_toggle_pressed)
 	card_hand_zone.add_child(card_hand_toggle_button)
 
@@ -2848,8 +3338,9 @@ func _update_card_hand_zone_layout(animated: bool) -> void:
 		hand_label.autowrap_mode = TextServer.AUTOWRAP_OFF if _card_hand_expanded else TextServer.AUTOWRAP_WORD_SMART
 
 	if card_hand_toggle_button != null:
-		card_hand_toggle_button.position = Vector2(138.0, 4.0) if _card_hand_expanded else Vector2(4.0, 64.0)
-		card_hand_toggle_button.size = Vector2(74.0, 26.0) if _card_hand_expanded else Vector2(68.0, 34.0)
+		# 展开时把“收起手牌”放到折叠态“展开手牌”的同一屏幕位置，避开右侧炮塔/支援层面板。
+		card_hand_toggle_button.position = Vector2(296.0, 86.0) if _card_hand_expanded else Vector2(4.0, 64.0)
+		card_hand_toggle_button.size = Vector2(68.0, 26.0) if _card_hand_expanded else Vector2(68.0, 34.0)
 
 
 func _get_card_hand_target_position(expanded: bool) -> Vector2:
@@ -2924,7 +3415,11 @@ func _make_card_control(card: Dictionary, index: int) -> Panel:
 	var accent := _card_color(card)
 	var face_style := _get_card_rarity_face_style(card)
 	var rarity_color := _get_card_face_accent(face_style)
-	panel.add_theme_stylebox_override("panel", _card_face_style(face_style))
+	var has_texture_face := _uses_card_face_texture(face_style)
+	if has_texture_face:
+		panel.add_theme_stylebox_override("panel", _transparent_card_panel_style())
+	else:
+		panel.add_theme_stylebox_override("panel", _card_face_style(face_style))
 	panel.gui_input.connect(_on_card_gui_input.bind(panel, index))
 	panel.mouse_entered.connect(_on_card_mouse_entered.bind(panel, index))
 	panel.mouse_exited.connect(_on_card_mouse_exited.bind(panel, index))
@@ -2932,59 +3427,85 @@ func _make_card_control(card: Dictionary, index: int) -> Panel:
 	_add_card_face_background(panel, face_style, accent)
 
 	var type_label := Label.new()
+	type_label.name = "CardTypeLabel"
 	type_label.text = "%s·%s" % [_get_card_rarity_label(card), _get_card_type_label(card)]
-	type_label.position = Vector2(8.0, 10.0)
-	type_label.size = Vector2(88.0, 18.0)
+	type_label.position = Vector2(15.0 + CARD_TEXT_OPTICAL_OFFSET_X, 20.0)
+	type_label.size = Vector2(74.0, 14.0)
 	type_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	type_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	type_label.add_theme_font_size_override("font_size", 9)
-	type_label.add_theme_color_override("font_color", rarity_color)
+	type_label.add_theme_font_size_override("font_size", 8)
+	type_label.add_theme_color_override("font_color", rarity_color.lightened(0.16))
+	_apply_card_text_shadow(type_label, 0.82)
 	panel.add_child(type_label)
 
 	var title := Label.new()
+	title.name = "CardTitle"
 	title.text = _get_card_display_name(card)
-	title.position = Vector2(8.0, 32.0)
-	title.size = Vector2(88.0, 34.0)
+	title.position = Vector2(14.0 + CARD_TEXT_OPTICAL_OFFSET_X, 36.0)
+	title.size = Vector2(76.0, 31.0)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	title.add_theme_font_size_override("font_size", 13)
-	title.add_theme_color_override("font_color", rarity_color)
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", rarity_color.lightened(0.08))
+	_apply_card_text_shadow(title, 0.86)
 	panel.add_child(title)
 
 	var icon := Label.new()
+	icon.name = "CardIcon"
 	icon.text = _card_icon(card)
-	icon.position = Vector2(12.0, 70.0)
-	icon.size = Vector2(80.0, 30.0)
+	icon.position = Vector2(20.0 + CARD_TEXT_OPTICAL_OFFSET_X, 70.0)
+	icon.size = Vector2(64.0, 32.0)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	icon.add_theme_font_size_override("font_size", 24)
-	icon.add_theme_color_override("font_color", rarity_color.lightened(0.12))
+	icon.add_theme_font_size_override("font_size", 23)
+	icon.add_theme_color_override("font_color", rarity_color.lightened(0.20))
+	_apply_card_text_shadow(icon, 0.80)
 	panel.add_child(icon)
 
-	var icon_frame := Panel.new()
-	icon_frame.position = Vector2(23.0, 67.0)
-	icon_frame.size = Vector2(58.0, 38.0)
-	icon_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon_frame.add_theme_stylebox_override("panel", _panel_style(Color(accent.r, accent.g, accent.b, _get_card_face_float(face_style, "icon_panel_alpha", 0.14, 0.0, 1.0)), Color(rarity_color.r, rarity_color.g, rarity_color.b, 0.54), 0))
-	panel.add_child(icon_frame)
-	panel.move_child(icon_frame, panel.get_child_count() - 2)
+	if not has_texture_face:
+		var icon_frame := Panel.new()
+		icon_frame.name = "CardIconFrame"
+		icon_frame.position = Vector2(23.0, 67.0)
+		icon_frame.size = Vector2(58.0, 38.0)
+		icon_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_frame.add_theme_stylebox_override("panel", _panel_style(Color(accent.r, accent.g, accent.b, _get_card_face_float(face_style, "icon_panel_alpha", 0.14, 0.0, 1.0)), Color(rarity_color.r, rarity_color.g, rarity_color.b, 0.54), 0))
+		panel.add_child(icon_frame)
+		panel.move_child(icon_frame, panel.get_child_count() - 2)
 
 	var hint := Label.new()
+	hint.name = "CardHint"
 	hint.text = _get_hand_card_hint_text(_discard_mode)
-	hint.position = Vector2(8.0, 114.0)
-	hint.size = Vector2(88.0, 20.0)
+	hint.position = Vector2(16.0 + CARD_TEXT_OPTICAL_OFFSET_X, 117.0)
+	hint.size = Vector2(72.0, 16.0)
 	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 10)
-	hint.add_theme_color_override("font_color", TEXT_MUTED)
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 9)
+	hint.add_theme_color_override("font_color", TEXT_MUTED.lightened(0.18))
+	_apply_card_text_shadow(hint, 0.76)
 	panel.add_child(hint)
 
 	return panel
 
 
 func _add_card_face_background(panel: Panel, face_style: Dictionary, card_accent: Color) -> void:
+	var texture_path := str(face_style.get("texture_path", ""))
+	if not texture_path.is_empty():
+		var background_texture := _load_ui_texture(texture_path)
+		if background_texture != null:
+			var background := TextureRect.new()
+			background.name = "RarityTextureBackground"
+			background.texture = background_texture
+			background.position = Vector2.ZERO
+			background.size = CARD_SIZE
+			background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			background.stretch_mode = TextureRect.STRETCH_SCALE
+			panel.add_child(background)
+			return
+
 	var rarity_color := _get_card_face_accent(face_style)
 	var stripe_height := _get_card_face_float(face_style, "stripe_height", 4.0, 0.0, CARD_FACE_MAX_SIZE)
 
@@ -3125,6 +3646,8 @@ func _card_color(card: Dictionary) -> Color:
 			return Color(0.36, 0.66, 0.90)
 		"fire_rate_boost":
 			return Color(0.42, 0.86, 0.58)
+		"volley_command":
+			return Color(1.0, 0.66, 0.18)
 		"heal":
 			return Color(0.46, 0.82, 0.58)
 		"missile":
@@ -3171,6 +3694,8 @@ func _card_icon(card: Dictionary) -> String:
 			return _get_range_boost_card_icon_text()
 		"fire_rate_boost":
 			return _get_fire_rate_boost_card_icon_text()
+		"volley_command":
+			return _get_volley_command_card_icon_text()
 		"heal":
 			return _get_heal_card_icon_text()
 		"missile":
@@ -3210,7 +3735,7 @@ func _card_icon(card: Dictionary) -> String:
 
 
 func _is_area_target_card(card: Dictionary) -> bool:
-	return _get_card_id(card) in ["missile", "cryo", "firestorm", "global_freeze", "bait_beacon", "road_spikes", "time_warp", "tower_swap", "bounty_mark"]
+	return _get_card_id(card) in ["missile", "cryo", "firestorm", "global_freeze", "volley_command", "bait_beacon", "road_spikes", "time_warp", "tower_swap", "bounty_mark"]
 
 
 func _get_card_area_preview_radius(card: Dictionary) -> float:
@@ -3234,13 +3759,17 @@ func _get_card_id(card: Dictionary) -> String:
 
 
 func _normalize_reward_card_id(raw_id: String) -> String:
-	match raw_id.strip_edges().to_lower():
+	var normalized_input := raw_id.strip_edges().to_lower()
+	var compact_input := normalized_input.replace(" ", "").replace("_", "").replace("-", "")
+	match normalized_input:
 		"boost", "tower", "damage", "dmg", "tower_boost":
 			return "tower_boost"
 		"range", "rng", "range_boost":
 			return "range_boost"
 		"rate", "speed", "fire", "fire_rate", "fire_rate_boost":
 			return "fire_rate_boost"
+		"volley", "salvo", "command", "volley_command", "齐射", "齐射指令", "集火", "齐射命令":
+			return "volley_command"
 		"heal", "repair":
 			return "heal"
 		"missile", "attack", "aoe":
@@ -3275,8 +3804,11 @@ func _normalize_reward_card_id(raw_id: String) -> String:
 			return "bounty_mark"
 		"reroll", "reroll_cache", "redraw":
 			return "reroll_cache"
+	match compact_input:
+		"volleycommand", "salvocommand", "齐射指令", "齐射命令":
+			return "volley_command"
 		_:
-			return raw_id.strip_edges().to_lower()
+			return normalized_input
 
 
 func _on_card_mouse_entered(panel: Control, index: int) -> void:
@@ -3493,6 +4025,54 @@ func _apply_build_panel_final_state(expanded: bool) -> void:
 	build_options_scroll.modulate.a = 1.0 if expanded else 0.0
 	compact_build_options_scroll.visible = not expanded
 	compact_build_options_scroll.modulate.a = 0.0 if expanded else 1.0
+
+
+func _create_wave_countdown_ui(root: Control) -> void:
+	wave_countdown_panel = Panel.new()
+	wave_countdown_panel.name = "WaveCountdownPanel"
+	wave_countdown_panel.position = WAVE_COUNTDOWN_POSITION
+	wave_countdown_panel.size = WAVE_COUNTDOWN_SIZE
+	wave_countdown_panel.pivot_offset = WAVE_COUNTDOWN_SIZE * 0.5
+	wave_countdown_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_countdown_panel.visible = false
+	wave_countdown_panel.modulate.a = 0.0
+	wave_countdown_panel.z_index = 29
+	var transparent_panel_style := StyleBoxFlat.new()
+	transparent_panel_style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	transparent_panel_style.border_width_left = 0
+	transparent_panel_style.border_width_top = 0
+	transparent_panel_style.border_width_right = 0
+	transparent_panel_style.border_width_bottom = 0
+	wave_countdown_panel.add_theme_stylebox_override("panel", transparent_panel_style)
+	root.add_child(wave_countdown_panel)
+
+	wave_countdown_title_label = Label.new()
+	wave_countdown_title_label.name = "WaveCountdownTitle"
+	wave_countdown_title_label.position = Vector2(20.0, 34.0)
+	wave_countdown_title_label.size = Vector2(360.0, 42.0)
+	wave_countdown_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wave_countdown_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	wave_countdown_title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_countdown_title_label.add_theme_font_size_override("font_size", 34)
+	wave_countdown_title_label.add_theme_color_override("font_color", TEXT_MAIN)
+	wave_countdown_title_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.78))
+	wave_countdown_title_label.add_theme_constant_override("shadow_offset_x", 3)
+	wave_countdown_title_label.add_theme_constant_override("shadow_offset_y", 3)
+	wave_countdown_panel.add_child(wave_countdown_title_label)
+
+	wave_countdown_timer_label = Label.new()
+	wave_countdown_timer_label.name = "WaveCountdownTimer"
+	wave_countdown_timer_label.position = Vector2(20.0, 78.0)
+	wave_countdown_timer_label.size = Vector2(360.0, 58.0)
+	wave_countdown_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wave_countdown_timer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	wave_countdown_timer_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_countdown_timer_label.add_theme_font_size_override("font_size", 56)
+	wave_countdown_timer_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.36))
+	wave_countdown_timer_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.82))
+	wave_countdown_timer_label.add_theme_constant_override("shadow_offset_x", 4)
+	wave_countdown_timer_label.add_theme_constant_override("shadow_offset_y", 4)
+	wave_countdown_panel.add_child(wave_countdown_timer_label)
 
 
 func _create_end_overlay(root: Control) -> void:
@@ -3898,8 +4478,16 @@ func _on_next_level_pressed() -> void:
 	next_level_pressed.emit()
 
 
+func _on_game_speed_pressed() -> void:
+	game_speed_pressed.emit()
+
+
 func _on_upgrade_pressed() -> void:
 	upgrade_pressed.emit()
+
+
+func _on_augmentation_upgrade_pressed() -> void:
+	augmentation_upgrade_pressed.emit()
 
 
 func _on_basic_branch_upgrade_pressed(branch_id: String) -> void:

@@ -33,12 +33,10 @@ const DEFAULT_LEVEL_WAVES: int = 4
 const MAX_LEVEL_WAVES: int = 20
 const ENEMY_BASE_DAMAGE: int = 1
 const INTERMISSION_SECONDS: float = 5.0
-const WAVE_CLEAR_BONUS_BASE: int = 14
-const WAVE_CLEAR_BONUS_PER_LEVEL: int = 3
-const WAVE_CLEAR_BONUS_PER_WAVE: int = 3
-const WAVE_CLEAR_BONUS_PER_EXTRA_ROUTE: int = 3
 const CARD_HAND_LIMIT: int = 5
 const PENDING_CARD_TIMEOUT: float = 12.0
+const PASSIVE_CARD_INTERVAL: float = 60.0
+const PASSIVE_CARD_WAVE_BONUS_OFFSET: int = 100
 const CARD_RARITY_WHITE := "white"
 const CARD_RARITY_BLUE := "blue"
 const CARD_RARITY_PURPLE := "purple"
@@ -67,6 +65,9 @@ const WAVE_START_BLOCKED_MESSAGE_TEXT := "暂时不能开始新一波。"
 const TOWER_LOCKED_MESSAGE_TEMPLATE := "%s 将在第%d关解锁。"
 const PAUSE_MESSAGE_TEXT := "游戏已暂停。"
 const RESUME_MESSAGE_TEXT := "游戏继续。"
+const GAME_SPEED_MULTIPLIERS: Array[float] = [1.0, 1.5, 2.0, 4.0]
+const DEFAULT_GAME_SPEED_INDEX: int = 0
+const GAME_SPEED_CHANGED_MESSAGE_TEMPLATE := "游戏速度：%s。"
 const LEVEL_RESTART_MESSAGE_TEMPLATE := "第%d关已重新开始。"
 const START_SCREEN_MESSAGE_TEXT := "建造防御塔，然后开始第一波进攻。"
 const CONTINUE_SAVE_MISSING_MESSAGE_TEXT := "没有可继续的关卡存档。"
@@ -78,6 +79,7 @@ const BASE_DAMAGE_MESSAGE_TEMPLATE := "基地受到%d点伤害。"
 const ELITE_STUN_MESSAGE_TEMPLATE := "精英怪爆炸，眩晕%d座炮塔。"
 const LEVEL_COMPLETE_MESSAGE_TEMPLATE := "第%d关已完成，可以进入下一关。"
 const INTERMISSION_MESSAGE_TEMPLATE := "第%d波已清空，下一波将在%.1f秒后开始。"
+const INTERMISSION_STARTED_MESSAGE_TEMPLATE := "第%d波已清空，准备下一波。"
 const AUTO_WAVE_STARTED_MESSAGE_TEMPLATE := "第%d关第%d波自动开始。"
 const AUTO_WAVE_BLOCKED_MESSAGE_TEXT := "自动波次暂时无法开始。"
 const REWARD_CARD_CONSOLE_TEMPLATE := "获得奖励卡牌：%s"
@@ -106,6 +108,10 @@ const FIRE_RATE_BOOST_MAX_DURATION: float = 60.0
 const DAMAGE_BOOST_CARD_MESSAGE_TEMPLATE := "卡牌生效：%d座塔在%.0f秒内伤害提高。"
 const RANGE_BOOST_CARD_MESSAGE_TEMPLATE := "卡牌生效：%d座塔在%.0f秒内射程提高。"
 const FIRE_RATE_BOOST_CARD_MESSAGE_TEMPLATE := "卡牌生效：%d座塔在%.0f秒内攻速提高。"
+const VOLLEY_COMMAND_DEFAULT_DURATION: float = 10.0
+const VOLLEY_COMMAND_MAX_DURATION: float = 60.0
+const VOLLEY_COMMAND_CARD_MESSAGE_TEMPLATE := "卡牌生效：%d座塔将在%.0f秒内跟随鼠标指针射击。"
+const VOLLEY_COMMAND_EMPTY_MESSAGE_TEXT := "当前没有可执行齐射指令的炮塔。"
 const HEAL_CARD_DEFAULT_AMOUNT: int = 6
 const HEAL_CARD_MAX_AMOUNT: int = 40
 const HEAL_CARD_MESSAGE_TEMPLATE := "卡牌生效：基地修复%d点生命。"
@@ -223,8 +229,8 @@ const BOUNTY_MARK_DEFAULT_BONUS_GOLD: int = 120
 const BOUNTY_MARK_MAX_BONUS_GOLD: int = 1000
 const BOUNTY_MARK_CARD_EMPTY_MESSAGE_TEXT := "悬赏标记范围内没有敌人。"
 const BOUNTY_MARK_CARD_HIT_MESSAGE_TEMPLATE := "卡牌生效：已悬赏%s，击杀额外+%d金币。"
-const REROLL_CACHE_CARD_EMPTY_MESSAGE_TEXT := "战术改签需要至少一张旧手牌。"
-const REROLL_CACHE_CARD_MESSAGE_TEXT := "卡牌生效：已改签最左侧手牌。"
+const REROLL_CACHE_CARD_EMPTY_MESSAGE_TEXT := "战术改签需要至少一张可升级稀有度的旧手牌。"
+const REROLL_CACHE_CARD_MESSAGE_TEXT := "卡牌生效：已随机改签一张手牌为更高稀有度。"
 const UNKNOWN_REWARD_CARD_MESSAGE_TEXT := "未知卡牌。"
 const VICTORY_MESSAGE_TEXT := "胜利！所有关卡已清空。"
 const VICTORY_TITLE_TEXT := "胜利"
@@ -309,6 +315,7 @@ var base_health: int = INITIAL_BASE_HEALTH
 var is_game_over: bool = false
 var has_game_started: bool = false
 var is_game_paused: bool = false
+var _game_speed_index: int = DEFAULT_GAME_SPEED_INDEX
 
 var tower_layer: Node2D
 var enemy_layer: Node2D
@@ -331,6 +338,7 @@ var _projectile_cache: Array[Projectile] = []
 var _world_particle_count: int = 0
 var _world_particle_ids: Dictionary = {}
 var _message: String = _get_start_screen_message_text()
+var _message_event_id: int = 0
 var _base_hit_flash: float = 0.0
 var _auto_waves_enabled: bool = false
 var _intermission_active: bool = false
@@ -338,6 +346,8 @@ var _intermission_timer: float = 0.0
 var _card_hand: Array[Dictionary] = []
 var _pending_reward_card: Dictionary = {}
 var _pending_reward_timeout: float = 0.0
+var _passive_card_timer: float = 0.0
+var _passive_card_timer_active: bool = false
 var _missile_effect_position: Vector2 = Vector2.ZERO
 var _missile_effect_radius: float = 0.0
 var _missile_effect_timer: float = 0.0
@@ -372,6 +382,7 @@ var _muzzle_particle_config: Dictionary = {
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().paused = false
+	Engine.time_scale = GAME_SPEED_MULTIPLIERS[DEFAULT_GAME_SPEED_INDEX]
 	_init_configs()
 	_create_layers()
 	_create_camera()
@@ -389,6 +400,7 @@ func _process(delta: float) -> void:
 
 	_update_camera_movement(delta)
 	_sync_ui_world_view_scale()
+	_update_active_volley_command_aim_to_mouse()
 
 	if _base_hit_flash > 0.0:
 		_base_hit_flash = maxf(_base_hit_flash - delta, 0.0)
@@ -400,6 +412,7 @@ func _process(delta: float) -> void:
 
 	_update_reward_card_timers(delta)
 	_update_road_spike_traps(delta)
+	_update_passive_card_drop(delta)
 
 	if not _pending_reward_card.is_empty():
 		_pending_reward_timeout = maxf(_pending_reward_timeout - delta, 0.0)
@@ -410,11 +423,11 @@ func _process(delta: float) -> void:
 
 	if _intermission_active:
 		_intermission_timer = maxf(_intermission_timer - delta, 0.0)
-		_message = _format_intermission_message_text(wave_manager.current_wave, _intermission_timer)
+		_update_intermission_countdown_ui()
 		if _intermission_timer <= 0.0:
 			_intermission_active = false
+			_hide_intermission_countdown_ui()
 			_start_next_auto_wave()
-		_refresh_ui()
 
 	_refresh_selected_tower_panel()
 
@@ -866,8 +879,13 @@ func spend_gold(amount: int) -> bool:
 
 
 func set_message(message: String) -> void:
-	_message = message
+	_set_game_message(message)
 	_refresh_ui()
+
+
+func _set_game_message(message: String) -> void:
+	_message = message
+	_message_event_id += 1
 
 
 func show_selected_tower(tower: Tower = null) -> void:
@@ -890,7 +908,7 @@ func get_tower_config(type_id: String) -> Dictionary:
 
 func get_tower_configs() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	for type_id in ["basic", "rapid", "shotgun", "cannon", "sniper", "amplifier"]:
+	for type_id in ["basic", "rapid", "shotgun", "cannon", "sniper", "cluster", "amplifier"]:
 		result.append(get_tower_config(type_id))
 	return result
 
@@ -981,6 +999,17 @@ func _get_resume_message_text() -> String:
 	return RESUME_MESSAGE_TEXT
 
 
+func _format_game_speed_multiplier_text(multiplier: float) -> String:
+	var rounded := roundf(multiplier)
+	if is_equal_approx(multiplier, rounded):
+		return "%dx" % int(rounded)
+	return "%.1fx" % multiplier
+
+
+func _format_game_speed_changed_message_text(multiplier: float) -> String:
+	return GAME_SPEED_CHANGED_MESSAGE_TEMPLATE % _format_game_speed_multiplier_text(multiplier)
+
+
 func _format_level_restart_message_text(level: int) -> String:
 	return LEVEL_RESTART_MESSAGE_TEMPLATE % level
 
@@ -1023,6 +1052,10 @@ func _format_level_complete_message_text(level: int) -> String:
 
 func _format_intermission_message_text(wave: int, seconds_left: float) -> String:
 	return INTERMISSION_MESSAGE_TEMPLATE % [wave, seconds_left]
+
+
+func _format_intermission_started_message_text(wave: int) -> String:
+	return INTERMISSION_STARTED_MESSAGE_TEMPLATE % wave
 
 
 func _format_auto_wave_started_message_text(level: int, wave: int) -> String:
@@ -1079,6 +1112,14 @@ func _format_range_boost_card_message_text(boosted_count: int, duration: float) 
 
 func _format_fire_rate_boost_card_message_text(boosted_count: int, duration: float) -> String:
 	return FIRE_RATE_BOOST_CARD_MESSAGE_TEMPLATE % [boosted_count, duration]
+
+
+func _format_volley_command_card_message_text(commanded_count: int, duration: float) -> String:
+	return VOLLEY_COMMAND_CARD_MESSAGE_TEMPLATE % [commanded_count, duration]
+
+
+func _get_volley_command_card_empty_message_text() -> String:
+	return VOLLEY_COMMAND_EMPTY_MESSAGE_TEXT
 
 
 func _format_heal_card_message_text(heal_amount: int) -> String:
@@ -1346,7 +1387,7 @@ func _format_console_base_damaged_message_text(damage_amount: int) -> String:
 
 
 func _set_current_level_message() -> void:
-	_message = _format_current_level_message_text(current_level_index + 1, _get_current_level_display_name())
+	_set_game_message(_format_current_level_message_text(current_level_index + 1, _get_current_level_display_name()))
 
 
 func _show_current_level_intro(delay: float) -> void:
@@ -1746,6 +1787,7 @@ func _create_ui() -> void:
 	ui.tower_build_requested.connect(_on_tower_build_requested)
 	ui.next_level_pressed.connect(_on_next_level_pressed)
 	ui.upgrade_pressed.connect(_on_upgrade_pressed)
+	ui.augmentation_upgrade_pressed.connect(_on_augmentation_upgrade_pressed)
 	ui.basic_branch_upgrade_pressed.connect(_on_basic_branch_upgrade_pressed)
 	ui.sell_pressed.connect(_on_sell_pressed)
 	ui.tower_panel_close_pressed.connect(_on_tower_panel_close_pressed)
@@ -1765,7 +1807,9 @@ func _create_ui() -> void:
 	ui.pause_main_menu_pressed.connect(_request_return_to_start_screen_from_pause)
 	ui.end_restart_pressed.connect(_restart_current_level)
 	ui.end_main_menu_pressed.connect(_return_to_start_screen)
+	ui.game_speed_pressed.connect(_cycle_game_speed)
 	_bind_ui_button_sounds(ui)
+	ui.set_game_speed_multiplier(_get_current_game_speed_multiplier())
 	ui.show_start_screen()
 	ui.set_continue_game_enabled(_has_level_start_save())
 	call_deferred("_show_latest_update_announcement_if_needed")
@@ -1933,7 +1977,7 @@ func _on_game_start_pressed() -> void:
 
 func _on_continue_game_pressed() -> void:
 	if not _load_level_start_save():
-		_message = _get_continue_save_missing_message_text()
+		_set_game_message(_get_continue_save_missing_message_text())
 		if ui != null:
 			ui.set_continue_game_enabled(false)
 		_refresh_ui()
@@ -1942,14 +1986,14 @@ func _on_continue_game_pressed() -> void:
 	ui.set_card_hand_available(true)
 	ui.set_tower_unlock_level(current_level_index)
 	ui.hide_start_screen()
-	_message = _format_continue_save_loaded_message_text(current_level_index + 1, _get_current_level_display_name())
+	_set_game_message(_format_continue_save_loaded_message_text(current_level_index + 1, _get_current_level_display_name()))
 	_show_current_level_intro(0.30)
 	_refresh_ui()
 
 
 func _on_level_selected(level_index: int) -> void:
 	if level_index > highest_unlocked_level_index:
-		_message = _format_locked_level_message_text(level_index + 1)
+		_set_game_message(_format_locked_level_message_text(level_index + 1))
 		_refresh_ui()
 		return
 	if _should_warn_save_overwrite(level_index):
@@ -1961,7 +2005,7 @@ func _on_level_selected(level_index: int) -> void:
 
 func _on_save_overwrite_confirmed(level_index: int) -> void:
 	if level_index > highest_unlocked_level_index:
-		_message = _format_locked_level_message_text(level_index + 1)
+		_set_game_message(_format_locked_level_message_text(level_index + 1))
 		_refresh_ui()
 		return
 	_load_level(level_index, false)
@@ -1974,10 +2018,12 @@ func _on_start_wave_pressed() -> void:
 
 	_auto_waves_enabled = true
 	if wave_manager.start_next_wave():
+		_start_passive_card_timer()
+		_hide_intermission_countdown_ui()
 		build_manager.cancel_build_mode()
-		_message = _format_wave_started_message_text(current_level_index + 1, wave_manager.current_wave)
+		_set_game_message(_format_wave_started_message_text(current_level_index + 1, wave_manager.current_wave))
 	else:
-		_message = _get_wave_start_blocked_message_text()
+		_set_game_message(_get_wave_start_blocked_message_text())
 
 	_refresh_ui()
 
@@ -1989,7 +2035,7 @@ func _on_tower_build_requested(type_id: String) -> void:
 	var safe_type_id := _sanitize_tower_type_id(type_id)
 	if not is_tower_type_unlocked(safe_type_id):
 		var config := get_tower_config(safe_type_id)
-		_message = _format_tower_locked_message_text(_get_tower_type_display_name(safe_type_id), _get_tower_unlock_level(config) + 1)
+		_set_game_message(_format_tower_locked_message_text(_get_tower_type_display_name(safe_type_id), _get_tower_unlock_level(config) + 1))
 		_refresh_ui()
 		return
 
@@ -2015,6 +2061,13 @@ func _on_upgrade_pressed() -> void:
 	_refresh_ui()
 
 
+func _on_augmentation_upgrade_pressed() -> void:
+	if is_game_paused:
+		return
+	build_manager.upgrade_selected_augmentation()
+	_refresh_ui()
+
+
 func _on_basic_branch_upgrade_pressed(branch_id: String) -> void:
 	if is_game_paused:
 		return
@@ -2035,6 +2088,36 @@ func _on_tower_panel_close_pressed() -> void:
 	_refresh_ui()
 
 
+func _get_current_game_speed_multiplier() -> float:
+	if GAME_SPEED_MULTIPLIERS.is_empty():
+		return 1.0
+	return GAME_SPEED_MULTIPLIERS[clampi(_game_speed_index, 0, GAME_SPEED_MULTIPLIERS.size() - 1)]
+
+
+func _set_game_speed_index(index: int, show_message: bool = false) -> void:
+	var multiplier_count := GAME_SPEED_MULTIPLIERS.size()
+	if multiplier_count <= 0:
+		_game_speed_index = 0
+		Engine.time_scale = 1.0
+		return
+
+	_game_speed_index = index % multiplier_count
+	if _game_speed_index < 0:
+		_game_speed_index += multiplier_count
+
+	var multiplier := _get_current_game_speed_multiplier()
+	Engine.time_scale = multiplier
+	if ui != null:
+		ui.set_game_speed_multiplier(multiplier)
+	if show_message:
+		_set_game_message(_format_game_speed_changed_message_text(multiplier))
+	_refresh_ui()
+
+
+func _cycle_game_speed() -> void:
+	_set_game_speed_index(_game_speed_index + 1, true)
+
+
 func _pause_game() -> void:
 	if is_game_paused or not has_game_started or is_game_over:
 		return
@@ -2047,7 +2130,7 @@ func _pause_game() -> void:
 	_camera_drag_button = MOUSE_BUTTON_NONE
 	is_game_paused = true
 	get_tree().paused = true
-	_message = _get_pause_message_text()
+	_set_game_message(_get_pause_message_text())
 	ui.show_pause_menu()
 	_refresh_ui()
 
@@ -2059,7 +2142,7 @@ func _resume_game() -> void:
 	is_game_paused = false
 	get_tree().paused = false
 	ui.hide_pause_menu()
-	_message = _get_resume_message_text()
+	_set_game_message(_get_resume_message_text())
 	_refresh_ui()
 
 
@@ -2073,7 +2156,7 @@ func _restart_current_level() -> void:
 	_load_level(level_to_restart, false)
 	has_game_started = true
 	_save_level_start_state()
-	_message = _format_level_restart_message_text(current_level_index + 1)
+	_set_game_message(_format_level_restart_message_text(current_level_index + 1))
 	_show_current_level_intro(0.05)
 	_refresh_ui()
 
@@ -2089,7 +2172,7 @@ func _return_to_start_screen() -> void:
 	_set_pause_state(false, false)
 	_load_level(0, false)
 	has_game_started = false
-	_message = _get_start_screen_message_text()
+	_set_game_message(_get_start_screen_message_text())
 	ui.show_start_screen()
 	ui.set_continue_game_enabled(_has_level_start_save())
 	_refresh_ui()
@@ -2102,15 +2185,16 @@ func _set_pause_state(paused: bool, update_message: bool = true) -> void:
 		if paused:
 			ui.show_pause_menu()
 			if update_message:
-				_message = _get_pause_message_text()
+				_set_game_message(_get_pause_message_text())
 		else:
 			ui.hide_pause_menu()
 			if update_message:
-				_message = _get_resume_message_text()
+				_set_game_message(_get_resume_message_text())
 
 
 func _on_wave_started(_wave: int) -> void:
 	_intermission_active = false
+	_hide_intermission_countdown_ui()
 	if ui != null:
 		ui.cancel_card_drag()
 	_refresh_ui()
@@ -2119,9 +2203,9 @@ func _on_wave_started(_wave: int) -> void:
 func _on_wave_spawn_finished(wave: int) -> void:
 	var total_waves := wave_manager.total_waves
 	if wave < total_waves:
-		_message = _format_wave_spawn_finished_message_text(wave)
+		_set_game_message(_format_wave_spawn_finished_message_text(wave))
 	else:
-		_message = _get_final_wave_spawn_finished_message_text()
+		_set_game_message(_get_final_wave_spawn_finished_message_text())
 	_check_level_complete()
 	_refresh_ui()
 
@@ -2160,7 +2244,7 @@ func _on_enemy_died(enemy: Enemy) -> void:
 	add_gold(final_reward)
 	if enemy.enemy_type_id == "elite":
 		_trigger_elite_death_blast(enemy.global_position)
-	_message = _format_gold_reward_message_text(final_reward)
+	_set_game_message(_format_gold_reward_message_text(final_reward))
 	_check_level_complete()
 	_refresh_ui()
 
@@ -2178,7 +2262,7 @@ func _on_enemy_reached_end(enemy: Enemy) -> void:
 	if base_health <= 0:
 		_defeat()
 	else:
-		_message = _format_base_damage_message_text(max(enemy.base_damage, ENEMY_BASE_DAMAGE))
+		_set_game_message(_format_base_damage_message_text(max(enemy.base_damage, ENEMY_BASE_DAMAGE)))
 		_check_level_complete()
 		_refresh_ui()
 
@@ -2193,7 +2277,7 @@ func _trigger_elite_death_blast(world_position: Vector2) -> void:
 			stunned += 1
 	spawn_area_particles(world_position, stun_radius, Color(0.78, 0.90, 1.0), 62, "EliteStunParticles")
 	if stunned > 0:
-		_message = _format_elite_stun_message_text(stunned)
+		_set_game_message(_format_elite_stun_message_text(stunned))
 
 
 func _unlock_level(level_index: int) -> void:
@@ -2217,9 +2301,10 @@ func _check_level_complete() -> void:
 			_offer_reward_card(wave_manager.current_wave)
 			is_level_complete = true
 			_intermission_active = false
+			_hide_intermission_countdown_ui()
 			build_manager.cancel_build_mode()
 			build_manager.clear_selection()
-			_message = _format_level_complete_message_text(current_level_index + 1)
+			_set_game_message(_format_level_complete_message_text(current_level_index + 1))
 			spawn_level_clear_particles(get_base_position())
 			ui.show_level_clear(current_level_index + 1, _get_current_level_display_name())
 			_refresh_ui()
@@ -2231,34 +2316,46 @@ func _start_intermission() -> void:
 	_intermission_active = true
 	_intermission_timer = INTERMISSION_SECONDS
 	_offer_reward_card(wave_manager.current_wave)
-	_message = _format_intermission_message_text(wave_manager.current_wave, _intermission_timer)
+	_set_game_message(_format_intermission_started_message_text(wave_manager.current_wave))
+	_update_intermission_countdown_ui()
 	_refresh_ui()
 
 
 func _start_next_auto_wave() -> void:
 	if is_game_over or is_level_complete or not _auto_waves_enabled:
+		_hide_intermission_countdown_ui()
 		return
 
+	_hide_intermission_countdown_ui()
 	if wave_manager.start_next_wave():
 		ui.cancel_card_drag()
 		build_manager.cancel_build_mode()
-		_message = _format_auto_wave_started_message_text(current_level_index + 1, wave_manager.current_wave)
+		_set_game_message(_format_auto_wave_started_message_text(current_level_index + 1, wave_manager.current_wave))
 	else:
-		_message = _get_auto_wave_blocked_message_text()
+		_set_game_message(_get_auto_wave_blocked_message_text())
 	_refresh_ui()
 
 
+func _update_intermission_countdown_ui() -> void:
+	if ui == null or wave_manager == null:
+		return
+	ui.show_wave_countdown(wave_manager.current_wave + 1, _intermission_timer)
+
+
+func _hide_intermission_countdown_ui() -> void:
+	if ui != null:
+		ui.hide_wave_countdown()
+
+
 func _offer_reward_card(wave: int) -> void:
-	var clear_bonus := _get_wave_clear_gold_bonus(wave)
-	add_gold(clear_bonus)
 	var card := _make_reward_card(wave)
 	_add_card_to_hand_or_pending(card)
-	ui.write_console_line(_format_reward_card_console_text(_get_reward_card_display_name(card)))
+	if ui != null:
+		ui.write_console_line(_format_reward_card_console_text(_get_reward_card_display_name(card)))
 
 
-func _get_wave_clear_gold_bonus(wave: int) -> int:
-	var route_bonus := maxi(spawn_paths.size() - 1, 0) * WAVE_CLEAR_BONUS_PER_EXTRA_ROUTE
-	return WAVE_CLEAR_BONUS_BASE + current_level_index * WAVE_CLEAR_BONUS_PER_LEVEL + wave * WAVE_CLEAR_BONUS_PER_WAVE + route_bonus
+func _get_wave_clear_gold_bonus(_wave: int) -> int:
+	return 0
 
 
 func _add_card_to_hand_or_pending(card: Dictionary) -> void:
@@ -2267,20 +2364,138 @@ func _add_card_to_hand_or_pending(card: Dictionary) -> void:
 		_card_hand.append(normalized_card)
 		_pending_reward_card.clear()
 		_pending_reward_timeout = 0.0
-		ui.update_card_hand(_card_hand, _pending_reward_card, false)
-		_message = _format_reward_card_stored_message_text(_get_reward_card_display_name(normalized_card))
+		if ui != null:
+			ui.update_card_hand(_card_hand, _pending_reward_card, false)
+		_set_game_message(_format_reward_card_stored_message_text(_get_reward_card_display_name(normalized_card)))
 	else:
 		_pending_reward_card = normalized_card
 		_pending_reward_timeout = PENDING_CARD_TIMEOUT
-		ui.update_card_hand(_card_hand, _pending_reward_card, true)
-		ui.update_pending_card_timeout(_pending_reward_timeout)
-		_message = _format_reward_card_hand_full_message_text(_get_reward_card_display_name(normalized_card))
+		if ui != null:
+			ui.update_card_hand(_card_hand, _pending_reward_card, true)
+			ui.update_pending_card_timeout(_pending_reward_timeout)
+		_set_game_message(_format_reward_card_hand_full_message_text(_get_reward_card_display_name(normalized_card)))
 
 
 func _make_reward_card(wave: int) -> Dictionary:
 	var card_pool := _get_reward_card_pool()
-	var pool_index := (wave - 1 + current_level_index * 2) % card_pool.size()
-	return _roll_reward_card_strength((card_pool[pool_index] as Dictionary).duplicate(true), wave)
+	if current_level_index == 0 and wave == 1:
+		return _roll_reward_card_strength(_get_reward_card_definition(DEFAULT_REWARD_CARD_ID), wave)
+	var picked_card := _pick_weighted_reward_card(card_pool, wave)
+	return _roll_reward_card_strength(picked_card.duplicate(true), wave)
+
+
+func _update_passive_card_drop(delta: float) -> void:
+	if not has_game_started or not _passive_card_timer_active or is_game_paused or is_game_over or is_level_complete:
+		return
+	_passive_card_timer += delta
+	while _passive_card_timer >= PASSIVE_CARD_INTERVAL:
+		_passive_card_timer -= PASSIVE_CARD_INTERVAL
+		_grant_passive_reward_card()
+
+
+func _start_passive_card_timer() -> void:
+	if _passive_card_timer_active:
+		return
+	_passive_card_timer_active = true
+	_passive_card_timer = 0.0
+
+
+func _grant_passive_reward_card() -> void:
+	if not _pending_reward_card.is_empty():
+		return
+	var wave_seed := maxi(wave_manager.current_wave, 1) + PASSIVE_CARD_WAVE_BONUS_OFFSET
+	var card := _make_reward_card(wave_seed)
+	_add_card_to_hand_or_pending(card)
+	if ui != null:
+		ui.write_console_line(_format_reward_card_console_text(_get_reward_card_display_name(card)))
+
+
+func _pick_weighted_reward_card(card_pool: Array[Dictionary], wave: int) -> Dictionary:
+	if card_pool.is_empty():
+		return {}
+	var total_weight := 0.0
+	var weights: Array[float] = []
+	for card in card_pool:
+		var weight := _get_reward_card_dynamic_weight(card, wave)
+		weights.append(weight)
+		total_weight += weight
+	if total_weight <= 0.0:
+		return (card_pool[0] as Dictionary).duplicate(true)
+	var roll := randf() * total_weight
+	for index in range(card_pool.size()):
+		roll -= weights[index]
+		if roll <= 0.0:
+			return (card_pool[index] as Dictionary).duplicate(true)
+	return (card_pool[card_pool.size() - 1] as Dictionary).duplicate(true)
+
+
+func _get_reward_card_dynamic_weight(card: Dictionary, _wave: int) -> float:
+	var weight := _get_reward_card_base_weight(card)
+	var health_pressure := _get_base_health_pressure()
+	var enemy_pressure := _get_enemy_density_pressure()
+	var gold_pressure := _get_gold_pressure()
+	var rarity_rank := _get_reward_card_rarity_rank(str(card.get("rarity", CARD_RARITY_WHITE)))
+	if _is_reward_card_heal_like(card):
+		var low_health_bonus := 1.7
+		if rarity_rank >= _get_reward_card_rarity_rank(CARD_RARITY_PURPLE):
+			low_health_bonus = 2.8
+		weight *= 1.0 + health_pressure * low_health_bonus
+	if _is_reward_card_attack_like(card):
+		weight *= 1.0 + enemy_pressure * 2.2
+	if _is_reward_card_gold_like(card):
+		weight *= 1.0 + gold_pressure * 2.4
+	return maxf(weight, 0.01)
+
+
+func _get_reward_card_base_weight(card: Dictionary) -> float:
+	match _sanitize_reward_card_rarity(card.get("rarity", CARD_RARITY_WHITE)):
+		CARD_RARITY_WHITE:
+			return 1.25
+		CARD_RARITY_BLUE:
+			return 1.05
+		CARD_RARITY_PURPLE:
+			return 0.82
+		CARD_RARITY_GOLD:
+			return 0.48
+		CARD_RARITY_RED:
+			return 0.22
+		_:
+			return 1.0
+
+
+func _is_reward_card_heal_like(card: Dictionary) -> bool:
+	var card_id := _sanitize_reward_card_id(card.get("id", DEFAULT_REWARD_CARD_ID))
+	return ["heal", "fortify", "panic_button"].has(card_id)
+
+
+func _is_reward_card_attack_like(card: Dictionary) -> bool:
+	var card_id := _sanitize_reward_card_id(card.get("id", DEFAULT_REWARD_CARD_ID))
+	return ["missile", "firestorm", "cryo", "global_freeze", "road_spikes", "time_warp", "bait_beacon"].has(card_id)
+
+
+func _is_reward_card_gold_like(card: Dictionary) -> bool:
+	var card_id := _sanitize_reward_card_id(card.get("id", DEFAULT_REWARD_CARD_ID))
+	return ["gold", "coin_magnet", "risky_cache", "bounty_mark"].has(card_id)
+
+
+func _get_base_health_pressure() -> float:
+	if max_base_health <= 0:
+		return 0.0
+	var health_ratio := float(base_health) / float(max_base_health)
+	return clampf((0.55 - health_ratio) / 0.45, 0.0, 1.0)
+
+
+func _get_enemy_density_pressure() -> float:
+	return _get_enemy_density_pressure_for_count(_collect_valid_active_enemies().size())
+
+
+func _get_enemy_density_pressure_for_count(enemy_count: int) -> float:
+	return clampf(float(enemy_count - 5) / 15.0, 0.0, 1.0)
+
+
+func _get_gold_pressure() -> float:
+	var expected_build_cost := 90.0
+	return clampf((expected_build_cost - float(gold)) / expected_build_cost, 0.0, 1.0)
 
 
 func _get_reward_card_pool() -> Array[Dictionary]:
@@ -2338,6 +2553,16 @@ func _get_reward_card_pool() -> Array[Dictionary]:
 			"duration": FIRE_RATE_BOOST_DEFAULT_DURATION,
 		},
 		{
+			"id": "volley_command",
+			"name": "齐射指令",
+			"type_label": "战术",
+			"rarity": CARD_RARITY_PURPLE,
+			"description": "拖到地图上释放，所有炮塔在10秒内持续跟随鼠标指针方向射击。",
+			"duration": VOLLEY_COMMAND_DEFAULT_DURATION,
+			"fixed_duration": true,
+			"sell_value": 34,
+		},
+		{
 			"id": "cryo",
 			"name": "冷冻地雷",
 			"type_label": "控制",
@@ -2362,7 +2587,7 @@ func _get_reward_card_pool() -> Array[Dictionary]:
 			"name": "全屏火焰",
 			"type_label": "攻击",
 			"rarity": CARD_RARITY_GOLD,
-			"description": "拖出后显示打击范围；释放时灼烧全屏敌人，造成135点伤害并附加持续烧伤。",
+			"description": "释放时灼烧全屏敌人，造成135点伤害并附加持续烧伤。",
 			"damage": FIRESTORM_CARD_DEFAULT_DAMAGE,
 			"radius": FIRESTORM_CARD_DEFAULT_RADIUS,
 			"burn_damage_per_tick": FIRESTORM_CARD_DEFAULT_BURN_DAMAGE_PER_TICK,
@@ -2375,7 +2600,7 @@ func _get_reward_card_pool() -> Array[Dictionary]:
 			"name": "冻结全屏",
 			"type_label": "控制",
 			"rarity": CARD_RARITY_GOLD,
-			"description": "拖出后显示打击范围；释放时冻结全屏敌人，造成10点伤害并大幅减速。",
+			"description": "释放时冻结全屏敌人，造成10点伤害并大幅减速。",
 			"damage": GLOBAL_FREEZE_CARD_DEFAULT_DAMAGE,
 			"radius": GLOBAL_FREEZE_CARD_DEFAULT_RADIUS,
 			"slow_multiplier": GLOBAL_FREEZE_CARD_DEFAULT_SLOW_MULTIPLIER,
@@ -2493,7 +2718,7 @@ func _get_reward_card_pool() -> Array[Dictionary]:
 			"name": "战术改签",
 			"type_label": "手牌",
 			"rarity": CARD_RARITY_GOLD,
-			"description": "使用后丢弃最左侧旧手牌，并补入一张新的奖励卡。",
+			"description": "使用后随机替换一张旧手牌，换成另一张稀有度更高的随机卡牌。",
 			"sell_value": 24,
 		},
 	]
@@ -2519,6 +2744,7 @@ func _normalize_reward_card(card: Dictionary) -> Dictionary:
 	if not bool(normalized.get("_rarity_scaled", false)):
 		_apply_reward_card_rarity_power(normalized)
 		normalized["_rarity_scaled"] = true
+	_refresh_reward_card_description(normalized)
 	return normalized
 
 
@@ -2563,14 +2789,151 @@ func _pick_reward_card_strength_rarity(wave: int) -> String:
 
 
 func _apply_reward_card_rarity_power(card: Dictionary) -> void:
+	var card_id := _sanitize_reward_card_id(card.get("id", DEFAULT_REWARD_CARD_ID))
 	var power := _get_reward_card_rarity_power(str(card.get("rarity", CARD_RARITY_WHITE)))
 	_scale_card_int_fields(card, REWARD_CARD_INT_FIELDS, power)
-	_scale_card_float_fields(card, ["duration"], 1.0 + (power - 1.0) * 0.45)
-	_scale_card_float_fields(card, ["radius"], 1.0 + (power - 1.0) * 0.25)
+	if not bool(card.get("fixed_duration", false)):
+		_scale_card_float_fields(card, ["duration"], 1.0 + (power - 1.0) * 0.45)
+	if not ["firestorm", "global_freeze"].has(card_id):
+		_scale_card_float_fields(card, ["radius"], 1.0 + (power - 1.0) * 0.25)
 	_scale_card_multiplier_fields(card, REWARD_CARD_MULTIPLIER_FIELDS, power)
 	_scale_card_ratio_fields(card, REWARD_CARD_RATIO_FIELDS, power)
 	_scale_card_float_fields(card, ["strength"], power)
 	_scale_card_slow_fields(card, REWARD_CARD_SLOW_FIELDS, power)
+
+
+func _refresh_reward_card_description(card: Dictionary) -> void:
+	# 卡牌实际效果会按稀有度缩放；描述统一在归一化后重建，避免 UI 显示旧倍率。
+	card["description"] = _format_reward_card_effect_description(card)
+
+
+func _format_reward_card_effect_description(card: Dictionary) -> String:
+	var card_id := _sanitize_reward_card_id(card.get("id", DEFAULT_REWARD_CARD_ID))
+	match card_id:
+		"tower_boost":
+			return "所有已建防御塔在%s秒内伤害提高%d%%。" % [
+				_format_reward_card_seconds(_get_tower_boost_card_duration(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_tower_boost_card_multiplier(card)),
+			]
+		"heal":
+			return "恢复%d点基地生命值，不能超过当前上限。" % _get_heal_card_amount(card)
+		"missile":
+			return "拖到目标区域释放，中等范围内造成%d点伤害。" % _get_missile_card_damage(card)
+		"gold":
+			return "立即获得%d金币，但会占用一次卡牌使用机会。" % _get_gold_card_amount(card)
+		"range_boost":
+			return "所有已建防御塔在%s秒内射程提高%d%%。" % [
+				_format_reward_card_seconds(_get_range_boost_card_duration(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_range_boost_card_multiplier(card)),
+			]
+		"fire_rate_boost":
+			return "所有已建防御塔在%s秒内攻击速度提高%d%%。" % [
+				_format_reward_card_seconds(_get_fire_rate_boost_card_duration(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_fire_rate_boost_card_multiplier(card)),
+			]
+		"volley_command":
+			return "拖到地图上释放，所有炮塔在%s秒内持续跟随鼠标指针方向射击。" % _format_reward_card_seconds(_get_volley_command_card_duration(card))
+		"cryo":
+			return "拖到区域释放，造成%d点伤害，并让范围内敌人减速%d%%，持续%s秒。" % [
+				_get_cryo_card_damage(card),
+				_format_reward_card_slow_percent(_get_cryo_card_slow_multiplier(card)),
+				_format_reward_card_seconds(_get_cryo_card_duration(card)),
+			]
+		"fortify":
+			return "基地生命上限提高%d点，并修复%d点生命，适合长关卡。" % [
+				_get_fortify_card_max_hp_gain(card),
+				_get_fortify_card_heal(card),
+			]
+		"firestorm":
+			return "释放时灼烧全屏敌人，造成%d点伤害，并附加每%s秒%d点、持续%s秒的烧伤。" % [
+				_get_firestorm_card_damage(card),
+				_format_reward_card_seconds(_get_firestorm_card_burn_tick_interval(card)),
+				_get_firestorm_card_burn_damage_per_tick(card),
+				_format_reward_card_seconds(_get_firestorm_card_burn_duration(card)),
+			]
+		"global_freeze":
+			return "释放时冻结全屏敌人，造成%d点伤害并减速%d%%，持续%s秒。" % [
+				_get_global_freeze_card_damage(card),
+				_format_reward_card_slow_percent(_get_global_freeze_card_slow_multiplier(card)),
+				_format_reward_card_seconds(_get_global_freeze_card_duration(card)),
+			]
+		"risky_cache":
+			return "%d%%概率获得%d金币；否则获得%d金币并让基地受%d点伤害。" % [
+				_format_reward_card_ratio_percent(_get_risky_cache_card_jackpot_chance(card)),
+				_get_risky_cache_card_jackpot_gold(card),
+				_get_risky_cache_card_fallback_gold(card),
+				_get_risky_cache_card_fallback_damage(card),
+			]
+		"bait_beacon":
+			return "拖到地图上释放，牵引附近敌人%s秒，牵引强度%d%%，方便聚怪打爆发。" % [
+				_format_reward_card_seconds(_get_bait_beacon_card_duration(card)),
+				_format_reward_card_ratio_percent(_get_bait_beacon_card_strength(card)),
+			]
+		"road_spikes":
+			return "拖到路径附近部署，前%d个踩中的敌人受到%d点伤害并减速%d%%，持续%s秒。" % [
+				_get_road_spike_card_charges(card),
+				_get_road_spike_card_damage(card),
+				_format_reward_card_slow_percent(_get_road_spike_card_slow_multiplier(card)),
+				_format_reward_card_seconds(_get_road_spike_card_duration(card)),
+			]
+		"coin_magnet":
+			return "%s秒内击杀金币提高%d%%，适合在敌人密集时使用。" % [
+				_format_reward_card_seconds(_get_coin_magnet_card_duration(card)),
+				_format_reward_card_ratio_percent(_get_coin_magnet_card_bonus_ratio(card)),
+			]
+		"time_warp":
+			return "拖到区域释放：区域内敌人减速%d%%，区域外敌人加速%d%%，持续%s秒。" % [
+				_format_reward_card_slow_percent(_get_time_warp_card_slow_multiplier(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_time_warp_card_haste_multiplier(card)),
+				_format_reward_card_seconds(_get_time_warp_card_duration(card)),
+			]
+		"tower_swap":
+			return "拖到一座塔附近释放，让该塔在%s秒内伤害提高%d%%、攻速提高%d%%。" % [
+				_format_reward_card_seconds(_get_tower_swap_card_duration(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_tower_swap_card_damage_multiplier(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_tower_swap_card_fire_rate_multiplier(card)),
+			]
+		"overload_debt":
+			return "全塔在%s秒内伤害提高%d%%、攻速提高%d%%，结束后降速%d%%持续%s秒。" % [
+				_format_reward_card_seconds(_get_overload_debt_card_duration(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_overload_debt_card_damage_multiplier(card)),
+				_format_reward_card_multiplier_bonus_percent(_get_overload_debt_card_fire_rate_multiplier(card)),
+				_format_reward_card_slow_percent(_get_overload_debt_card_debt_multiplier(card)),
+				_format_reward_card_seconds(_get_overload_debt_card_debt_duration(card)),
+			]
+		"panic_button":
+			return "常规修复%d点；基地低于%d%%生命时修复%d点，并让全屏敌人减速%d%%持续%s秒。" % [
+				_get_panic_button_card_heal(card),
+				_format_reward_card_ratio_percent(_get_panic_button_card_low_health_ratio(card)),
+				_get_panic_button_card_panic_heal(card),
+				_format_reward_card_slow_percent(_get_panic_button_card_slow_multiplier(card)),
+				_format_reward_card_seconds(_get_panic_button_card_duration(card)),
+			]
+		"bounty_mark":
+			return "拖到区域释放，标记范围内生命最高的敌人，击杀额外获得%d金币。" % _get_bounty_mark_card_bonus_gold(card)
+		"reroll_cache":
+			return "使用后随机替换一张旧手牌，换成另一张稀有度更高的随机卡牌。"
+		_:
+			return str(card.get("description", "")).strip_edges()
+
+
+func _format_reward_card_seconds(value: float) -> String:
+	var rounded_value := roundf(value)
+	if absf(value - rounded_value) < 0.05:
+		return str(int(rounded_value))
+	return "%.1f" % value
+
+
+func _format_reward_card_multiplier_bonus_percent(multiplier: float) -> int:
+	return maxi(0, int(roundi((multiplier - 1.0) * 100.0)))
+
+
+func _format_reward_card_slow_percent(multiplier: float) -> int:
+	return maxi(0, int(roundi((1.0 - multiplier) * 100.0)))
+
+
+func _format_reward_card_ratio_percent(ratio: float) -> int:
+	return maxi(0, int(roundi(ratio * 100.0)))
 
 
 func _sanitize_reward_card_numeric_fields(card: Dictionary) -> void:
@@ -2673,6 +3036,15 @@ func _get_reward_card_rarity_power(rarity: String) -> float:
 			return CARD_RARITY_WHITE_POWER
 
 
+func _get_reward_card_rarity_rank(rarity: String) -> int:
+	return maxi(CARD_RARITIES.find(_sanitize_reward_card_rarity(rarity)), 0)
+
+
+func _get_higher_reward_card_rarity(rarity: String) -> String:
+	var next_rank := clampi(_get_reward_card_rarity_rank(rarity) + 1, 0, CARD_RARITIES.size() - 1)
+	return CARD_RARITIES[next_rank]
+
+
 func _get_reward_card_display_name(card: Dictionary) -> String:
 	var source_display_name := str(card.get("name", "")).strip_edges()
 	if not source_display_name.is_empty():
@@ -2687,13 +3059,17 @@ func _get_reward_card_display_name(card: Dictionary) -> String:
 
 
 func _normalize_reward_card_id(raw_id: String) -> String:
-	match raw_id.strip_edges().to_lower():
+	var normalized_input := raw_id.strip_edges().to_lower()
+	var compact_input := normalized_input.replace(" ", "").replace("_", "").replace("-", "")
+	match normalized_input:
 		"boost", "tower", "damage", "dmg", "tower_boost":
 			return "tower_boost"
 		"range", "rng", "range_boost":
 			return "range_boost"
 		"rate", "speed", "fire", "fire_rate", "fire_rate_boost":
 			return "fire_rate_boost"
+		"volley", "salvo", "command", "volley_command", "齐射", "齐射指令", "集火", "齐射命令":
+			return "volley_command"
 		"heal", "repair":
 			return "heal"
 		"missile", "attack", "aoe":
@@ -2728,8 +3104,11 @@ func _normalize_reward_card_id(raw_id: String) -> String:
 			return "bounty_mark"
 		"reroll", "reroll_cache", "redraw":
 			return "reroll_cache"
+	match compact_input:
+		"volleycommand", "salvocommand", "齐射指令", "齐射命令":
+			return "volley_command"
 		_:
-			return raw_id.strip_edges().to_lower()
+			return normalized_input
 
 
 func _sanitize_reward_card_id(raw_id: Variant, fallback_id: String = DEFAULT_REWARD_CARD_ID) -> String:
@@ -2767,7 +3146,7 @@ func _on_reward_card_play_requested(card_index: int, drop_position: Vector2) -> 
 		return
 
 	if not _pending_reward_card.is_empty():
-		_message = _get_pending_card_blocks_play_message_text()
+		_set_game_message(_get_pending_card_blocks_play_message_text())
 		ui.reject_dragged_card()
 		_refresh_ui()
 		return
@@ -2808,7 +3187,7 @@ func _on_reward_card_discard_requested(card_index: int) -> void:
 	_pending_reward_card.clear()
 	_pending_reward_timeout = 0.0
 	_clear_reward_card_effect_state()
-	_message = _format_reward_card_replaced_message_text(discarded_name, kept_name)
+	_set_game_message(_format_reward_card_replaced_message_text(discarded_name, kept_name))
 	ui.update_card_hand(_card_hand, _pending_reward_card, false)
 	_refresh_ui()
 
@@ -2822,7 +3201,7 @@ func _reject_pending_reward_card(message: String) -> void:
 		return
 	_pending_reward_card.clear()
 	_pending_reward_timeout = 0.0
-	_message = message
+	_set_game_message(message)
 	ui.update_card_hand(_card_hand, _pending_reward_card, false)
 	_refresh_ui()
 
@@ -2832,7 +3211,7 @@ func _on_reward_card_sell_requested(card_index: int) -> void:
 		ui.reject_dragged_card()
 		return
 	if not _pending_reward_card.is_empty():
-		_message = _get_pending_card_blocks_sell_message_text()
+		_set_game_message(_get_pending_card_blocks_sell_message_text())
 		ui.reject_dragged_card()
 		_refresh_ui()
 		return
@@ -2844,7 +3223,7 @@ func _on_reward_card_sell_requested(card_index: int) -> void:
 	var sell_value := _get_reward_card_sell_value(sold_card)
 	_card_hand.remove_at(card_index)
 	add_gold(sell_value)
-	_message = _format_reward_card_sold_message_text(sell_value)
+	_set_game_message(_format_reward_card_sold_message_text(sell_value))
 	ui.consume_card_and_refresh(card_index, _card_hand, _pending_reward_card, false, "CardSellParticles")
 	_refresh_ui()
 
@@ -2860,7 +3239,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				tower.apply_damage_boost(multiplier, duration)
 			)
 			spawn_area_particles(get_base_position(), 78.0, Color(1.0, 0.78, 0.24), 34, "TowerBoostParticles")
-			_message = _format_damage_boost_card_message_text(boosted, duration)
+			_set_game_message(_format_damage_boost_card_message_text(boosted, duration))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"range_boost":
 			var multiplier := _get_range_boost_card_multiplier(normalized_card)
@@ -2869,7 +3248,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				tower.apply_range_boost(multiplier, duration)
 			)
 			spawn_area_particles(get_base_position(), 96.0, Color(0.46, 0.78, 1.0), 34, "RangeBoostParticles")
-			_message = _format_range_boost_card_message_text(boosted, duration)
+			_set_game_message(_format_range_boost_card_message_text(boosted, duration))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"fire_rate_boost":
 			var multiplier := _get_fire_rate_boost_card_multiplier(normalized_card)
@@ -2878,14 +3257,28 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				tower.apply_fire_rate_boost(multiplier, duration)
 			)
 			spawn_area_particles(get_base_position(), 72.0, Color(0.58, 1.0, 0.70), 34, "FireRateBoostParticles")
-			_message = _format_fire_rate_boost_card_message_text(boosted, duration)
+			_set_game_message(_format_fire_rate_boost_card_message_text(boosted, duration))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
+		"volley_command":
+			var duration := _get_volley_command_card_duration(normalized_card)
+			var command_position := _clamp_to_play_area(drop_position)
+			var commanded_count := 0
+			for tower in _collect_valid_active_towers():
+				if tower.can_receive_forced_fire_command():
+					tower.apply_forced_fire_direction(command_position, duration)
+					commanded_count += 1
+			if commanded_count <= 0:
+				_set_game_message(_get_volley_command_card_empty_message_text())
+				return false
+			spawn_area_particles(command_position, 72.0, Color(1.0, 0.66, 0.18), 42, "VolleyCommandParticles")
+			_set_game_message(_format_volley_command_card_message_text(commanded_count, duration))
+			return _finish_reward_card_success(card_id, command_position, normalized_card)
 		"heal":
 			var heal_amount := _get_heal_card_amount(normalized_card)
 			var before := base_health
 			base_health = mini(base_health + heal_amount, max_base_health)
 			spawn_area_particles(get_base_position(), 58.0, Color(0.50, 1.0, 0.58), 28, "HealParticles")
-			_message = _format_heal_card_message_text(base_health - before)
+			_set_game_message(_format_heal_card_message_text(base_health - before))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"missile":
 			var radius := _get_missile_card_radius(normalized_card)
@@ -2893,7 +3286,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			var center := _clamp_to_play_area(drop_position)
 			var hit_count := _damage_enemies_in_radius(center, radius, damage_amount)
 			if hit_count <= 0:
-				_message = _get_missile_card_empty_message_text()
+				_set_game_message(_get_missile_card_empty_message_text())
 				return false
 			return _finish_area_reward_card_success(card_id, drop_position, normalized_card, center, radius, Color(1.0, 0.46, 0.14), Color(1.0, 0.88, 0.35), radius, 56, "MissileCardParticles", _format_missile_card_hit_message_text(hit_count))
 		"cryo":
@@ -2904,7 +3297,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			var center := _clamp_to_play_area(drop_position)
 			var hit_count := _damage_and_slow_enemies_in_radius(center, radius, damage_amount, slow_multiplier, duration)
 			if hit_count <= 0:
-				_message = _get_cryo_card_empty_message_text()
+				_set_game_message(_get_cryo_card_empty_message_text())
 				return false
 			return _finish_area_reward_card_success(card_id, drop_position, normalized_card, center, radius, Color(0.46, 0.86, 1.0), Color(0.84, 1.0, 1.0), radius, 56, "CryoCardParticles", _format_cryo_card_hit_message_text(hit_count))
 		"firestorm":
@@ -2914,7 +3307,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			var burn_duration := _get_firestorm_card_burn_duration(normalized_card)
 			var hit_count := _damage_and_burn_all_enemies(damage_amount, burn_damage_per_tick, burn_tick_interval, burn_duration)
 			if hit_count <= 0:
-				_message = _get_firestorm_card_empty_message_text()
+				_set_game_message(_get_firestorm_card_empty_message_text())
 				return false
 			var center := get_map_center_position()
 			var visual_radius := get_map_half_max_dimension()
@@ -2925,7 +3318,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			var duration := _get_global_freeze_card_duration(normalized_card)
 			var hit_count := _damage_and_slow_all_enemies(damage_amount, slow_multiplier, duration)
 			if hit_count <= 0:
-				_message = _get_global_freeze_card_empty_message_text()
+				_set_game_message(_get_global_freeze_card_empty_message_text())
 				return false
 			var center := get_map_center_position()
 			var visual_radius := get_map_half_max_dimension()
@@ -2937,7 +3330,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			var center := _clamp_to_play_area(drop_position)
 			var hit_count := _attract_enemies_in_radius(center, radius, duration, strength)
 			if hit_count <= 0:
-				_message = _get_bait_beacon_card_empty_message_text()
+				_set_game_message(_get_bait_beacon_card_empty_message_text())
 				return false
 			return _finish_area_reward_card_success(card_id, drop_position, normalized_card, center, radius, Color(1.0, 0.78, 0.22), Color(1.0, 0.95, 0.48), radius, 58, "BaitBeaconParticles", _format_bait_beacon_card_hit_message_text(hit_count))
 		"road_spikes":
@@ -2959,7 +3352,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			_coin_magnet_timer = maxf(_coin_magnet_timer, duration)
 			_coin_magnet_bonus_ratio = maxf(_coin_magnet_bonus_ratio, bonus_ratio)
 			spawn_area_particles(get_base_position(), 88.0, Color(1.0, 0.86, 0.24), 44, "CoinMagnetParticles")
-			_message = _format_coin_magnet_card_message_text(duration, int(roundi(bonus_ratio * 100.0)))
+			_set_game_message(_format_coin_magnet_card_message_text(duration, int(roundi(bonus_ratio * 100.0))))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"time_warp":
 			var radius := _get_time_warp_card_radius(normalized_card)
@@ -2972,19 +3365,19 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				_get_time_warp_card_duration(normalized_card)
 			)
 			if hit_count <= 0:
-				_message = _get_time_warp_card_empty_message_text()
+				_set_game_message(_get_time_warp_card_empty_message_text())
 				return false
 			return _finish_area_reward_card_success(card_id, drop_position, normalized_card, center, radius, Color(0.70, 0.46, 1.0), Color(0.94, 0.82, 1.0), radius, 60, "TimeWarpParticles", _format_time_warp_card_hit_message_text(hit_count))
 		"tower_swap":
 			var tower := _find_tower_near(drop_position, _get_tower_swap_card_radius(normalized_card))
 			if tower == null:
-				_message = _get_tower_swap_card_empty_message_text()
+				_set_game_message(_get_tower_swap_card_empty_message_text())
 				return false
 			var duration := _get_tower_swap_card_duration(normalized_card)
 			tower.apply_damage_boost(_get_tower_swap_card_damage_multiplier(normalized_card), duration)
 			tower.apply_fire_rate_boost(_get_tower_swap_card_fire_rate_multiplier(normalized_card), duration)
 			spawn_area_particles(tower.global_position, 64.0, Color(0.52, 1.0, 0.78), 36, "TowerSwapParticles")
-			_message = _get_tower_swap_card_hit_message_text()
+			_set_game_message(_get_tower_swap_card_hit_message_text())
 			return _finish_reward_card_success(card_id, tower.global_position, normalized_card)
 		"overload_debt":
 			var duration := _get_overload_debt_card_duration(normalized_card)
@@ -2998,7 +3391,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			_overload_debt_multiplier = _get_overload_debt_card_debt_multiplier(normalized_card)
 			_overload_debt_duration = _get_overload_debt_card_debt_duration(normalized_card)
 			spawn_area_particles(get_base_position(), 100.0, Color(1.0, 0.36, 0.70), 62, "OverloadDebtParticles")
-			_message = _format_overload_debt_card_message_text(duration)
+			_set_game_message(_format_overload_debt_card_message_text(duration))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"panic_button":
 			var low_health_ratio := _get_panic_button_card_low_health_ratio(normalized_card)
@@ -3008,19 +3401,19 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			if is_panic:
 				_damage_and_slow_all_enemies(0, _get_panic_button_card_slow_multiplier(normalized_card), _get_panic_button_card_duration(normalized_card))
 			spawn_area_particles(get_base_position(), 118.0 if is_panic else 68.0, Color(1.0, 0.92, 0.36), 64 if is_panic else 32, "PanicButtonParticles")
-			_message = _get_panic_button_card_message_text()
+			_set_game_message(_get_panic_button_card_message_text())
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"bounty_mark":
 			var radius := _get_bounty_mark_card_radius(normalized_card)
 			var center := _clamp_to_play_area(drop_position)
 			var target := _find_highest_health_enemy_in_radius(center, radius)
 			if target == null:
-				_message = _get_bounty_mark_card_empty_message_text()
+				_set_game_message(_get_bounty_mark_card_empty_message_text())
 				return false
 			_bounty_enemy_id = target.get_instance_id()
 			_bounty_bonus_gold = _get_bounty_mark_card_bonus_gold(normalized_card)
 			spawn_area_particles(target.global_position, 56.0, Color(1.0, 0.76, 0.18), 38, "BountyMarkParticles")
-			_message = _format_bounty_mark_card_hit_message_text(target.enemy_name, _bounty_bonus_gold)
+			_set_game_message(_format_bounty_mark_card_hit_message_text(target.enemy_name, _bounty_bonus_gold))
 			return _finish_reward_card_success(card_id, target.global_position, normalized_card)
 		"gold":
 			var gold_amount := _get_gold_card_amount(normalized_card)
@@ -3037,7 +3430,7 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				"gravity": Vector2(0.0, -180.0),
 				"color": Color(1.0, 0.84, 0.24),
 			})
-			_message = _format_gold_card_message_text(gold_amount)
+			_set_game_message(_format_gold_card_message_text(gold_amount))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"risky_cache":
 			var chance := _get_risky_cache_card_jackpot_chance(normalized_card)
@@ -3045,13 +3438,13 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 				var jackpot_gold := _get_risky_cache_card_jackpot_gold(normalized_card)
 				add_gold(jackpot_gold)
 				spawn_area_particles(get_base_position(), 84.0, Color(1.0, 0.82, 0.28), 44, "GoldBurstParticles")
-				_message = _format_risky_cache_success_message_text(jackpot_gold)
+				_set_game_message(_format_risky_cache_success_message_text(jackpot_gold))
 			else:
 				var fallback_gold := _get_risky_cache_card_fallback_gold(normalized_card)
 				var fallback_damage := _get_risky_cache_card_fallback_damage(normalized_card)
 				add_gold(fallback_gold)
 				_apply_base_damage(fallback_damage)
-				_message = _format_risky_cache_failure_message_text(fallback_gold, fallback_damage)
+				_set_game_message(_format_risky_cache_failure_message_text(fallback_gold, fallback_damage))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		"fortify":
 			var max_hp_gain := _get_fortify_card_max_hp_gain(normalized_card)
@@ -3059,10 +3452,10 @@ func _apply_reward_card(card: Dictionary, drop_position: Vector2 = Vector2.ZERO)
 			max_base_health += max_hp_gain
 			base_health = mini(base_health + heal_amount, max_base_health)
 			spawn_area_particles(get_base_position(), 74.0, Color(0.62, 0.92, 1.0), 36, "FortifyParticles")
-			_message = _format_fortify_card_message_text(max_hp_gain, heal_amount)
+			_set_game_message(_format_fortify_card_message_text(max_hp_gain, heal_amount))
 			return _finish_reward_card_success(card_id, drop_position, normalized_card)
 		_:
-			_message = _get_unknown_reward_card_message_text()
+			_set_game_message(_get_unknown_reward_card_message_text())
 			return false
 
 
@@ -3086,6 +3479,22 @@ func _collect_valid_active_towers() -> Array[Tower]:
 	return towers
 
 
+func _update_active_volley_command_aim_to_mouse() -> void:
+	if not has_game_started:
+		return
+	var mouse_world_position := _clamp_to_play_area(screen_to_world(get_viewport().get_mouse_position()))
+	_update_active_volley_command_aim(mouse_world_position)
+
+
+func _update_active_volley_command_aim(target_position: Vector2) -> int:
+	var updated_count := 0
+	for tower in _collect_valid_active_towers():
+		if tower.forced_fire_time > 0.0 and tower.can_receive_forced_fire_command():
+			tower.update_forced_fire_target_position(target_position)
+			updated_count += 1
+	return updated_count
+
+
 func _finish_area_reward_card_success(
 	card_id: String,
 	drop_position: Vector2,
@@ -3101,7 +3510,7 @@ func _finish_area_reward_card_success(
 ) -> bool:
 	_show_world_area_effect(center, visual_radius, area_color, accent_color)
 	spawn_area_particles(center, particle_radius, area_color, particle_amount, particle_name)
-	_message = message
+	_set_game_message(message)
 	return _finish_reward_card_success(card_id, drop_position, card)
 
 
@@ -3228,7 +3637,7 @@ func _get_reward_card_rarity_color(rarity: String) -> Color:
 func _get_reward_card_release_radius(card_id: String, card: Dictionary) -> float:
 	match card_id:
 		"firestorm", "global_freeze":
-			return minf(get_map_max_dimension() * 0.34, _scale_world_range(260.0))
+			return get_map_half_max_dimension()
 		"missile", "cryo", "bait_beacon", "time_warp", "bounty_mark":
 			if card_id == "bait_beacon":
 				return _get_bait_beacon_card_radius(card)
@@ -3911,6 +4320,10 @@ func _get_fire_rate_boost_card_duration(card: Dictionary) -> float:
 	return _sanitize_fire_rate_boost_duration(card.get("duration", FIRE_RATE_BOOST_DEFAULT_DURATION))
 
 
+func _get_volley_command_card_duration(card: Dictionary) -> float:
+	return _sanitize_volley_command_duration(card.get("duration", VOLLEY_COMMAND_DEFAULT_DURATION))
+
+
 func _sanitize_bounty_mark_radius(raw_radius: Variant) -> float:
 	if raw_radius is int or raw_radius is float:
 		var radius := float(raw_radius)
@@ -4103,6 +4516,14 @@ func _sanitize_tower_boost_duration(raw_duration: Variant) -> float:
 	return TOWER_BOOST_DEFAULT_DURATION
 
 
+func _sanitize_volley_command_duration(raw_duration: Variant) -> float:
+	if raw_duration is int or raw_duration is float:
+		var duration := float(raw_duration)
+		if duration > 0.0 and duration <= VOLLEY_COMMAND_MAX_DURATION:
+			return duration
+	return VOLLEY_COMMAND_DEFAULT_DURATION
+
+
 func _sanitize_range_boost_multiplier(raw_multiplier: Variant) -> float:
 	if raw_multiplier is int or raw_multiplier is float:
 		var multiplier := float(raw_multiplier)
@@ -4218,19 +4639,49 @@ func _find_highest_health_enemy_in_radius(center: Vector2, radius: float) -> Ene
 
 
 func _apply_reroll_cache_card(card_index: int) -> bool:
-	if _card_hand.size() <= 1:
-		_message = _get_reroll_cache_card_empty_message_text()
+	var replace_candidates: Array[int] = []
+	for index in range(_card_hand.size()):
+		if index == card_index:
+			continue
+		var old_card := _normalize_reward_card(_card_hand[index])
+		var old_rarity := str(old_card.get("rarity", CARD_RARITY_WHITE))
+		if _get_reward_card_rarity_rank(old_rarity) < CARD_RARITIES.size() - 1:
+			replace_candidates.append(index)
+	if replace_candidates.is_empty():
+		_set_game_message(_get_reroll_cache_card_empty_message_text())
 		return false
-	var discard_index := 0 if card_index != 0 else 1
-	_card_hand.remove_at(discard_index)
-	if discard_index < card_index:
-		card_index -= 1
+
+	var replace_index := replace_candidates[randi() % replace_candidates.size()]
+	var replaced_card := _normalize_reward_card(_card_hand[replace_index])
+	_card_hand[replace_index] = _make_higher_rarity_replacement_card(replaced_card, wave_manager.current_wave + _card_hand.size() + 1)
 	_card_hand.remove_at(card_index)
-	_card_hand.append(_make_reward_card(wave_manager.current_wave + _card_hand.size() + 1))
 	spawn_area_particles(get_base_position(), 72.0, Color(0.72, 0.56, 1.0), 34, "RerollCacheParticles")
 	_spawn_reward_card_release_effect("reroll_cache", get_base_position(), _get_reward_card_definition("reroll_cache"))
-	_message = _get_reroll_cache_card_message_text()
+	_set_game_message(_get_reroll_cache_card_message_text())
 	return true
+
+
+func _make_higher_rarity_replacement_card(replaced_card: Dictionary, wave: int) -> Dictionary:
+	var old_id := _sanitize_reward_card_id(replaced_card.get("id", DEFAULT_REWARD_CARD_ID))
+	var target_rarity := _get_higher_reward_card_rarity(str(replaced_card.get("rarity", CARD_RARITY_WHITE)))
+	var candidates: Array[Dictionary] = []
+	for card in _get_reward_card_pool():
+		var candidate := card as Dictionary
+		var candidate_id := _sanitize_reward_card_id(candidate.get("id", DEFAULT_REWARD_CARD_ID))
+		if candidate_id == old_id or candidate_id == "reroll_cache":
+			continue
+		candidates.append(candidate)
+	if candidates.is_empty():
+		var fallback_card := _get_reward_card_definition(DEFAULT_REWARD_CARD_ID)
+		fallback_card["rarity"] = target_rarity
+		fallback_card.erase("strength_multiplier")
+		fallback_card["_rarity_scaled"] = false
+		return _normalize_reward_card(fallback_card)
+	var replacement := _pick_weighted_reward_card(candidates, wave)
+	replacement["rarity"] = target_rarity
+	replacement.erase("strength_multiplier")
+	replacement["_rarity_scaled"] = false
+	return _normalize_reward_card(replacement)
 
 
 func _clamp_to_play_area(position_to_clamp: Vector2) -> Vector2:
@@ -4245,10 +4696,11 @@ func _victory() -> void:
 	_unlock_level(level_configs.size() - 1)
 	is_game_over = true
 	_intermission_active = false
+	_hide_intermission_countdown_ui()
 	wave_manager.stop()
 	build_manager.cancel_build_mode()
 	build_manager.clear_selection()
-	_message = _get_victory_message_text()
+	_set_game_message(_get_victory_message_text())
 	spawn_screen_particles(true)
 	ui.show_end_overlay(_get_victory_title_text(), _get_victory_subtitle_text(), Color(0.38, 0.95, 0.54))
 	_refresh_ui()
@@ -4258,12 +4710,13 @@ func _defeat() -> void:
 	_set_pause_state(false, false)
 	is_game_over = true
 	_intermission_active = false
+	_hide_intermission_countdown_ui()
 	base_health = 0
 	wave_manager.stop()
 	build_manager.cancel_build_mode()
 	build_manager.clear_selection()
 	_clear_enemies_and_projectiles()
-	_message = _get_defeat_message_text()
+	_set_game_message(_get_defeat_message_text())
 	spawn_screen_particles(false)
 	ui.show_end_overlay(_get_defeat_title_text(), _get_defeat_subtitle_text(), Color(1.0, 0.28, 0.18))
 	_refresh_ui()
@@ -4273,6 +4726,8 @@ func _refresh_ui() -> void:
 	if ui == null:
 		return
 
+	var status_message := _message if has_game_started else ""
+	var status_message_event_id := _message_event_id if has_game_started else 0
 	ui.update_status(
 		gold,
 		base_health,
@@ -4281,7 +4736,8 @@ func _refresh_ui() -> void:
 		level_configs.size(),
 		wave_manager.current_wave if wave_manager != null else 0,
 		wave_manager.total_waves if wave_manager != null else 0,
-		_message
+		status_message,
+		status_message_event_id
 	)
 	ui.set_start_wave_enabled(has_game_started and not is_game_over and not is_level_complete and wave_manager != null and wave_manager.current_wave == 0 and wave_manager.can_start_wave())
 	ui.set_next_level_enabled(has_game_started and is_level_complete and current_level_index < level_configs.size() - 1)
@@ -4299,9 +4755,12 @@ func _load_level(level_index: int, keep_resources: bool) -> void:
 	_auto_waves_enabled = false
 	_intermission_active = false
 	_intermission_timer = 0.0
+	_hide_intermission_countdown_ui()
 	_card_hand.clear()
 	_pending_reward_card.clear()
 	_pending_reward_timeout = 0.0
+	_passive_card_timer = 0.0
+	_passive_card_timer_active = false
 
 	var config := get_current_level_config()
 	var level_map_size := _get_level_map_size(config)
@@ -4345,29 +4804,34 @@ func _load_level(level_index: int, keep_resources: bool) -> void:
 func _init_configs() -> void:
 	tower_configs = {
 		"basic": {
-			"id": "basic", "name": "基础塔", "cost": 50, "damage": 15, "range": 130.0, "interval": 0.8, "projectile_speed": 360.0,
+			"id": "basic", "name": "基础塔", "cost": 50, "damage": 15, "range": 130.0, "interval": 0.8, "projectile_speed": 390.0,
 			"category": "weapon", "category_label": "武器塔", "icon": "基",
 			"color": Color(0.32, 0.60, 0.86), "barrel_color": Color(0.075, 0.105, 0.130), "projectile_color": Color(0.42, 0.82, 1.0)
 		},
 		"rapid": {
-			"id": "rapid", "name": "速射塔", "cost": 65, "damage": 8, "range": 115.0, "interval": 0.35, "projectile_speed": 430.0,
+			"id": "rapid", "name": "速射塔", "cost": 65, "damage": 8, "range": 115.0, "interval": 0.30, "projectile_speed": 470.0,
 			"category": "weapon", "category_label": "武器塔", "icon": "速",
 			"color": Color(0.32, 0.78, 0.62), "barrel_color": Color(0.060, 0.170, 0.140), "projectile_color": Color(0.46, 1.0, 0.70)
 		},
 		"shotgun": {
-			"id": "shotgun", "name": "散弹塔", "cost": 85, "damage": 11, "range": 104.0, "interval": 0.95, "projectile_speed": 340.0,
+			"id": "shotgun", "name": "散弹塔", "cost": 85, "damage": 11, "range": 104.0, "interval": 0.95, "projectile_speed": 370.0,
 			"category": "weapon", "category_label": "武器塔", "icon": "散", "shots": 5, "spread": 0.90,
 			"color": Color(0.82, 0.64, 0.34), "barrel_color": Color(0.22, 0.13, 0.06), "projectile_color": Color(1.0, 0.76, 0.34)
 		},
 		"cannon": {
-			"id": "cannon", "name": "重炮塔", "cost": 90, "damage": 32, "range": 115.0, "interval": 1.25, "projectile_speed": 300.0,
+			"id": "cannon", "name": "重炮塔", "cost": 90, "damage": 32, "range": 115.0, "interval": 1.25, "projectile_speed": 330.0,
 			"category": "weapon", "category_label": "武器塔", "icon": "炮", "splash_radius": 56.0, "splash_ratio": 0.52,
 			"color": Color(0.88, 0.53, 0.26), "barrel_color": Color(0.215, 0.110, 0.070), "projectile_color": Color(1.0, 0.58, 0.22)
 		},
 		"sniper": {
-			"id": "sniper", "name": "狙击塔", "cost": 110, "damage": 42, "range": 210.0, "interval": 1.55, "projectile_speed": 960.0,
+			"id": "sniper", "name": "狙击塔", "cost": 110, "damage": 42, "range": 210.0, "interval": 1.85, "projectile_speed": 1040.0,
 			"category": "weapon", "category_label": "武器塔", "icon": "狙", "pierce": 2,
 			"color": Color(0.62, 0.54, 0.90), "barrel_color": Color(0.135, 0.115, 0.205), "projectile_color": Color(0.86, 0.82, 1.0)
+		},
+		"cluster": {
+			"id": "cluster", "name": "蜂巢导弹塔", "cost": 130, "damage": 7, "range": 190.0, "interval": 1.32, "projectile_speed": 305.0,
+			"category": "weapon", "category_label": "武器塔", "icon": "蜂", "shots": 6, "spread": 0.36,
+			"color": Color(0.66, 0.48, 0.20), "barrel_color": Color(0.12, 0.095, 0.060), "projectile_color": Color(1.0, 0.72, 0.22)
 		},
 		"amplifier": {
 			"id": "amplifier", "name": "增幅塔", "cost": 95, "damage": 0, "range": 0.0, "interval": 0.0, "projectile_speed": 0.0,
@@ -4383,6 +4847,7 @@ func _init_configs() -> void:
 		"cannon": 3,
 		"sniper": 4,
 		"amplifier": 5,
+		"cluster": 6,
 	}
 	for type_id in tower_unlock_levels.keys():
 		if tower_configs.has(type_id):
@@ -4395,7 +4860,7 @@ func _init_configs() -> void:
 		"runner": {"id": "runner", "name": "疾行者", "health_mul": 0.7, "speed_mul": 1.55, "reward_mul": 1.0, "radius": 9.5, "shape": "diamond", "color": Color(0.95, 0.72, 0.16), "outline": Color(0.36, 0.24, 0.04), "base_damage": 1},
 		"brute": {"id": "brute", "name": "重甲兵", "health_mul": 2.2, "speed_mul": 0.62, "reward_mul": 1.3, "radius": 17.0, "shape": "square", "color": Color(0.55, 0.22, 0.75), "outline": Color(0.18, 0.08, 0.26), "base_damage": 2},
 		"shield": {"id": "shield", "name": "护盾兵", "health_mul": 1.55, "speed_mul": 0.85, "reward_mul": 1.2, "radius": 14.5, "shape": "triangle", "color": Color(0.20, 0.72, 0.86), "outline": Color(0.04, 0.21, 0.27), "base_damage": 1},
-		"taunt": {"id": "taunt", "name": "嘲讽堡垒", "health_mul": 3.4, "speed_mul": 0.48, "reward_mul": 1.1, "radius": 19.5, "shape": "hex", "color": Color(0.34, 0.40, 0.46), "outline": Color(0.08, 0.10, 0.12), "base_damage": 2, "taunt": true},
+		"taunt": {"id": "taunt", "name": "嘲讽堡垒", "health_mul": 4.5, "speed_mul": 0.48, "reward_mul": 1.1, "radius": 19.5, "shape": "hex", "color": Color(0.34, 0.40, 0.46), "outline": Color(0.08, 0.10, 0.12), "base_damage": 2, "taunt": true},
 		"elite": {"id": "elite", "name": "精英爆破兵", "health_mul": 3.0, "speed_mul": 0.70, "reward_mul": 1.6, "radius": 18.5, "shape": "hex", "color": Color(0.92, 0.34, 0.22), "outline": Color(0.34, 0.08, 0.05), "base_damage": 2},
 	}
 
@@ -4867,7 +5332,12 @@ func _execute_console_command(command: String) -> String:
 			_refresh_ui()
 			return _get_console_clear_response_text()
 		"card":
-			var card_id := str(parts[1]).to_lower() if parts.size() > 1 else ""
+			var card_id := ""
+			if parts.size() > 1:
+				var card_tokens := PackedStringArray()
+				for part_index in range(1, parts.size()):
+					card_tokens.append(str(parts[part_index]))
+				card_id = " ".join(card_tokens).strip_edges()
 			var debug_card := _make_debug_reward_card(card_id)
 			_add_card_to_hand_or_pending(debug_card)
 			_refresh_ui()
@@ -4936,7 +5406,7 @@ func _get_console_help() -> String:
 		"card [类型] / usecard：创建或使用测试卡牌",
 		"victory / defeat：触发胜利或失败动画",
 		"restart / status：重载场景或查看当前状态",
-		"卡牌类型：boost（超频）、range（射程）、rate（急速）、heal（维修）、missile（导弹）、cryo（冷冻）、firestorm（火焰）、freeze（冻结）、risk（补给）、fortify（加固）、gold（军费）、bait（诱饵）、spikes（尖刺）、magnet（磁铁）、warp（裂隙）、swap（调度）、overload（透支）、panic（紧急）、bounty（悬赏）、reroll（改签）",
+		"卡牌类型：boost（超频）、range（射程）、rate（急速）、volley（齐射）、heal（维修）、missile（导弹）、cryo（冷冻）、firestorm（火焰）、freeze（冻结）、risk（补给）、fortify（加固）、gold（军费）、bait（诱饵）、spikes（尖刺）、magnet（磁铁）、warp（裂隙）、swap（调度）、overload（透支）、panic（紧急）、bounty（悬赏）、reroll（改签）",
 	])
 
 
@@ -4956,8 +5426,9 @@ func _get_enemy_type_config_display_name(type_config: Dictionary) -> String:
 
 
 func _make_debug_reward_card(card_id: String) -> Dictionary:
-	match card_id:
-		"boost", "tower", "tower_boost":
+	var normalized_card_id := _normalize_reward_card_id(card_id)
+	match normalized_card_id:
+		"tower_boost":
 			return {
 				"id": "tower_boost",
 				"name": "调试超频",
@@ -4966,7 +5437,7 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"multiplier": 1.25,
 				"duration": 10.0,
 			}
-		"range", "range_boost":
+		"range_boost":
 			return {
 				"id": "range_boost",
 				"name": "调试中继",
@@ -4975,7 +5446,7 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"multiplier": 1.18,
 				"duration": 12.0,
 			}
-		"rate", "fire", "fire_rate", "fire_rate_boost":
+		"fire_rate_boost":
 			return {
 				"id": "fire_rate_boost",
 				"name": "调试急速",
@@ -4984,6 +5455,8 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"multiplier": 1.35,
 				"duration": 8.0,
 			}
+		"volley_command":
+			return _get_reward_card_definition("volley_command").duplicate(true)
 		"heal":
 			return {
 				"id": "heal",
@@ -4992,7 +5465,7 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"description": "恢复6点基地生命值。",
 				"amount": 6,
 			}
-		"missile", "attack":
+		"missile":
 			return {
 				"id": "missile",
 				"name": "调试导弹",
@@ -5001,7 +5474,7 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"damage": MISSILE_CARD_DEFAULT_DAMAGE,
 				"radius": MISSILE_CARD_DEFAULT_RADIUS,
 			}
-		"cryo", "slow":
+		"cryo":
 			return {
 				"id": "cryo",
 				"name": "调试冷冻",
@@ -5012,13 +5485,13 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"slow_multiplier": CRYO_CARD_DEFAULT_SLOW_MULTIPLIER,
 				"duration": CRYO_CARD_DEFAULT_DURATION,
 			}
-		"firestorm", "flame":
+		"firestorm":
 			return _get_reward_card_definition("firestorm").duplicate(true)
-		"freeze", "global_freeze":
+		"global_freeze":
 			return _get_reward_card_definition("global_freeze").duplicate(true)
-		"risk", "risky", "risky_cache":
+		"risky_cache":
 			return _get_reward_card_definition("risky_cache").duplicate(true)
-		"fortify", "defense":
+		"fortify":
 			return {
 				"id": "fortify",
 				"name": "调试加固",
@@ -5035,23 +5508,23 @@ func _make_debug_reward_card(card_id: String) -> Dictionary:
 				"description": "获得85金币。",
 				"amount": 85,
 			}
-		"bait", "beacon", "bait_beacon":
+		"bait_beacon":
 			return _get_reward_card_definition("bait_beacon").duplicate(true)
-		"spikes", "road_spikes", "trap":
+		"road_spikes":
 			return _get_reward_card_definition("road_spikes").duplicate(true)
-		"magnet", "coin_magnet":
+		"coin_magnet":
 			return _get_reward_card_definition("coin_magnet").duplicate(true)
-		"warp", "time_warp":
+		"time_warp":
 			return _get_reward_card_definition("time_warp").duplicate(true)
-		"swap", "tower_swap":
+		"tower_swap":
 			return _get_reward_card_definition("tower_swap").duplicate(true)
-		"overload", "overload_debt":
+		"overload_debt":
 			return _get_reward_card_definition("overload_debt").duplicate(true)
-		"panic", "panic_button":
+		"panic_button":
 			return _get_reward_card_definition("panic_button").duplicate(true)
-		"bounty", "bounty_mark":
+		"bounty_mark":
 			return _get_reward_card_definition("bounty_mark").duplicate(true)
-		"reroll", "reroll_cache":
+		"reroll_cache":
 			return _get_reward_card_definition("reroll_cache").duplicate(true)
 		_:
 			return _get_reward_card_definition(DEFAULT_REWARD_CARD_ID).duplicate(true)
